@@ -57,6 +57,10 @@ class NonlinearLiftingLine(ImplicitAnalysis):
         ] = np.cosspace,
         vortex_core_radius: float = 1e-8,
         align_trailing_vortices_with_wind: bool = False,
+        n_crit: float = 9.,
+        xtr_upper: float = 1.,
+        xtr_lower: float = 1.,
+
     ):
         """
         Initializes and conducts a NonlinearLiftingLine analysis.
@@ -93,6 +97,9 @@ class NonlinearLiftingLine(ImplicitAnalysis):
         self.spanwise_spacing_function = spanwise_spacing_function
         self.vortex_core_radius = vortex_core_radius
         self.align_trailing_vortices_with_wind = align_trailing_vortices_with_wind
+        self.n_crit = n_crit
+        self.xtr_lower = xtr_lower
+        self.xtr_upper = xtr_upper
 
         ### Determine whether you should run the problem as symmetric
         self.run_symmetric = False
@@ -331,6 +338,9 @@ class NonlinearLiftingLine(ImplicitAnalysis):
                 Re=Res[i],
                 mach=machs[i],
                 control_surfaces=self.control_surfaces[i],
+                xtr_lower=self.xtr_lower,
+                xtr_upper=self.xtr_upper,
+                n_crit=self.n_crit,
             )
             for i, af in enumerate(self.airfoils)
         ]
