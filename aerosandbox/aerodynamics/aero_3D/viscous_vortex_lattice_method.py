@@ -57,7 +57,7 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
         ] = np.cosspace,
         vortex_core_radius: float = 1e-8,
         align_trailing_vortices_with_wind: bool = True,
-        n_crit: float = 0.01,
+        n_crit: float = 9.,
         xtr_upper: float = 1.,
         xtr_lower: float = 1.,
     ):
@@ -319,7 +319,7 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
 
         self.vortex_strengths = np.linalg.solve(AIC, -freestream_influences)
 
-        ################ viscous
+        ################ VISCOUS
 
         velocities = self.get_velocity_at_points(points=self.vortex_centers)
         velocity_magnitudes = np.linalg.norm(velocities, axis=1)
