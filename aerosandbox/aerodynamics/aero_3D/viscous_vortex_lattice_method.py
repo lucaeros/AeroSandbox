@@ -5,6 +5,7 @@ from aerosandbox.performance import OperatingPoint
 from aerosandbox.aerodynamics.aero_3D.singularities.uniform_strength_horseshoe_singularities import (
     calculate_induced_velocity_horseshoe,
 )
+from aerosandbox.modeling.interpolation import InterpolatedModel
 from typing import Dict, Any, List, Callable
 import copy
 from scipy import optimize
@@ -192,24 +193,6 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
 
             airfoils.extend(wing_airfoils)
             control_surfaces.extend(wing_control_surfaces)
-
-            if wing.symmetric:  # Do the left side, if applicable
-                airfoils.extend(wing_airfoils)
-
-                def mirror_control_surface(surf: ControlSurface) -> ControlSurface:
-                    if surf.symmetric:
-                        return surf
-                    else:
-                        surf = surf.copy()
-                        surf.deflection *= -1
-                        return surf
-
-                symmetric_wing_control_surfaces = [
-                    [mirror_control_surface(surf) for surf in surfs]
-                    for surfs in wing_control_surfaces
-                ]
-
-                control_surfaces.extend(symmetric_wing_control_surfaces)
         
         front_left_vertices = np.concatenate(front_left_vertices)
         back_left_vertices = np.concatenate(back_left_vertices)
@@ -254,6 +237,7 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
         self.vortex_centers = vortex_centers
         self.vortex_bound_leg = vortex_bound_leg
         self.collocation_points = collocation_points
+        self.airfoils: List[Airfoil] = airfoils
 
         ##### Setup Operating Point
         if self.verbose:
@@ -281,6 +265,7 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
         self.steady_freestream_velocity = steady_freestream_velocity
         self.steady_freestream_direction = steady_freestream_direction
         self.freestream_velocities = freestream_velocities
+        print(freestream_velocities)
 
         ##### Setup Geometry
         ### Calculate AIC matrix
@@ -319,56 +304,7 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
 
         self.vortex_strengths = np.linalg.solve(AIC, -freestream_influences)
 
-        ################ VISCOUS
-
-        velocities = self.get_velocity_at_points(points=self.vortex_centers)
-        velocity_magnitudes = np.linalg.norm(velocities, axis=1)
-        velocity_directions = velocities / tall(velocity_magnitudes)
-
-        alphas = 90 - np.arccosd(
-            np.sum(velocity_directions * self.normal_directions, axis=1)
-        )
-
-        # Get perpendicular parameters
-        cos_sweeps = np.sum(velocity_directions * -local_forward_direction, axis=1)
-
-        Res = (
-            velocity_magnitudes
-            * chords
-            / self.op_point.atmosphere.kinematic_viscosity()
-        ) * cos_sweeps
-
-        machs = (
-            velocity_magnitudes / self.op_point.atmosphere.speed_of_sound() * cos_sweeps
-        )
-
-        aeros = [
-            af.get_aero_from_neuralfoil(
-                alpha=alphas[i],
-                Re=Res[i],
-                mach=machs[i],
-                control_surfaces=control_surfaces[i],
-                xtr_lower=self.xtr_lower,
-                xtr_upper=self.xtr_upper,
-                n_crit=self.n_crit,
-            )
-            for i, af in enumerate(airfoils)
-        ]
-        CLs = np.array([aero["CL"][0] for aero in aeros])
-        CDs = np.array([aero["CD"][0] for aero in aeros])
-        CMs = np.array([aero["CM"][0] for aero in aeros])
-
-        self.CLs = CLs
-        self.CDs = CDs
-        self.CMs = CMs
-        self.alphas = alphas
         ##### Calculate forces
-        ### Calculate Near-Field Forces and Moments
-        # Governing Equation: The force on a straight, small vortex filament is F = rho * cross(V, l) * gamma,
-        # where rho is density, V is the velocity vector, cross() is the cross product operator,
-        # l is the vector of the filament itself, and gamma is the circulation.
-
-                ##### Calculate forces
         ### Calculate Near-Field Forces and Moments
         # Governing Equation: The force on a straight, small vortex filament is F = rho * cross(V, l) * gamma,
         # where rho is density, V is the velocity vector, cross() is the cross product operator,
@@ -397,6 +333,96 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
             forces_inviscid_geometry,
         )
 
+        ## VISCOUS built-up
+        nx = self.chordwise_resolution
+        ny = forces_inviscid_geometry.shape[0] // nx
+
+        # trapezoidal geometry
+        front_left_vertices = []
+        back_left_vertices = []
+        back_right_vertices = []
+        front_right_vertices = []
+
+        for wing in self.airplane.wings:  # subdivide the wing in more spanwise sections
+            if self.spanwise_resolution > 1:
+                wing = wing.subdivide_sections(
+                    ratio=self.spanwise_resolution,
+                    spacing_function=self.spanwise_spacing_function,
+                )
+
+            points, faces = wing.mesh_thin_surface(
+                method="quad",
+                chordwise_resolution=1,
+                add_camber=False,
+            )
+
+            front_left_vertices.append(points[faces[:, 0], :])
+            back_left_vertices.append(points[faces[:, 1], :])
+            back_right_vertices.append(points[faces[:, 2], :])
+            front_right_vertices.append(points[faces[:, 3], :])
+
+        front_left_vertices = np.concatenate(front_left_vertices)
+        back_left_vertices = np.concatenate(back_left_vertices)
+        back_right_vertices = np.concatenate(back_right_vertices)
+        front_right_vertices = np.concatenate(front_right_vertices)
+
+        ### Compute panel statistics
+        diag1 = front_right_vertices - back_left_vertices
+        diag2 = front_left_vertices - back_right_vertices
+        cross = np.cross(diag1, diag2)
+        cross_norm = np.linalg.norm(cross, axis=1)
+        normal_directions = cross / tall(cross_norm)
+        areas = cross_norm / 2
+        
+        # Compute the location of points of interest on each panel
+        chord_vectors = (back_left_vertices + back_right_vertices) / 2 - (
+            front_left_vertices + front_right_vertices
+        ) / 2
+        chords = np.linalg.norm(chord_vectors, axis=1)
+
+        # local CL calculation
+        chordwise_forces = np.sum(forces_inviscid_geometry.reshape([nx, ny, 3], order = "F")[:,:ny//2,:], axis=0)
+        freestream_lift_dir = np.tile(np.cross(self.steady_freestream_direction, [0, 1,0]), (ny//2, 1)) 
+        dihedral = np.arctan(normal_directions[:ny//2, 1]/normal_directions[:ny//2, 2])
+
+        l = np.sin(dihedral)*chordwise_forces[:,1] + np.cos(dihedral)*np.einsum('ij,ij->i', chordwise_forces,freestream_lift_dir)
+        Cl = l/(0.5*self.op_point.atmosphere.density()*self.op_point.velocity**2*areas[:ny//2])
+        self.Cl = Cl
+
+        #Built interpolant 
+
+        def index_up_to_peak(a: np.ndarray) -> np.ndarray:
+            """
+            Returns the sub-array from the start up through the first maximum.
+            """
+            peak_idx = np.argmax(a)
+            return peak_idx
+        
+        Res = self.op_point.reynolds(chords)
+        print(Res)
+        aeros = [af.get_aero_from_neuralfoil(
+                alpha=np.linspace(-5, 20, num = 50),
+                Re=Res[i],
+                mach=0.01,
+                xtr_lower=self.xtr_lower,
+                xtr_upper=self.xtr_upper,
+                n_crit=self.n_crit,
+            )
+            for i, af in enumerate(self.airfoils)
+        ]
+        
+        index_stall = [index_up_to_peak(aero["CL"]) for aero in aeros]
+        Dp = 0
+        for i in range(len(self.airfoils)):
+            CLs_no_stall = aeros[i]["CL"][:index_stall[i]+1]
+            CDs_no_stall = aeros[i]["CD"][:index_stall[i]+1]
+            spl_cd = InterpolatedModel(CLs_no_stall,CDs_no_stall)
+            print("local_cl", self.Cl[i])
+            print("local_cd", spl_cd(self.Cl[i]))
+            Dp += spl_cd(self.Cl[i])*0.5*self.op_point.atmosphere.density()*self.op_point.velocity**2*areas[i]
+        Dp *= 2
+        
+
         # Calculate total forces and moments
         force_inviscid_geometry = np.sum(forces_inviscid_geometry, axis=0)
         moment_inviscid_geometry = np.sum(moments_inviscid_geometry, axis=0)
@@ -420,11 +446,6 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
                 to_axes="wind",
             )
         )
-
-        nx = self.chordwise_resolution
-        ny = forces_inviscid_geometry.shape[0] // nx
-        chordwise_forces = np.sum(forces_inviscid_geometry.reshape(nx, ny, 3), axis = 0)
-
 
         force_total_geometry = force_inviscid_geometry
 
@@ -471,10 +492,9 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
         )
 
         ### Save things to the instance for later access
-        L = -force_total_wind[2]
-        D = -force_total_wind[0]
+        L = -force_inviscid_wind[2]
+        D = -force_inviscid_wind[0] + Dp
         Di = -force_inviscid_wind[0]
-        Dp = -force_inviscid_wind[0]
         Y = force_total_wind[1]
         l_b = moment_total_body[0]
         m_b = moment_total_body[1]
