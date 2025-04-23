@@ -265,7 +265,6 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
         self.steady_freestream_velocity = steady_freestream_velocity
         self.steady_freestream_direction = steady_freestream_direction
         self.freestream_velocities = freestream_velocities
-        print(freestream_velocities)
 
         ##### Setup Geometry
         ### Calculate AIC matrix
@@ -388,6 +387,7 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
         l = np.sin(dihedral)*chordwise_forces[:,1] + np.cos(dihedral)*np.einsum('ij,ij->i', chordwise_forces,freestream_lift_dir)
         Cl = l/(0.5*self.op_point.atmosphere.density()*self.op_point.velocity**2*areas[:ny//2])
         self.Cl = Cl
+        self.ideal_aoa = Cl/(2*np.pi)
 
         #Built interpolant 
 
@@ -399,9 +399,9 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
             return peak_idx
         
         Res = self.op_point.reynolds(chords)
-        print(Res)
+        alphas = np.linspace(-10, 25, num = 50)
         aeros = [af.get_aero_from_neuralfoil(
-                alpha=np.linspace(-5, 20, num = 50),
+                alpha=alphas,
                 Re=Res[i],
                 mach=0.01,
                 xtr_lower=self.xtr_lower,
@@ -414,12 +414,16 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
         index_stall = [index_up_to_peak(aero["CL"]) for aero in aeros]
         Dp = 0
         for i in range(len(self.airfoils)):
-            CLs_no_stall = aeros[i]["CL"][:index_stall[i]+1]
-            CDs_no_stall = aeros[i]["CD"][:index_stall[i]+1]
-            spl_cd = InterpolatedModel(CLs_no_stall,CDs_no_stall)
-            print("local_cl", self.Cl[i])
-            print("local_cd", spl_cd(self.Cl[i]))
-            Dp += spl_cd(self.Cl[i])*0.5*self.op_point.atmosphere.density()*self.op_point.velocity**2*areas[i]
+            CL_max = aeros[i]["CL"][index_stall[i]]
+            CL_no_stall = aeros[i]["CL"][:index_stall[i]+1]
+            CD_no_stall = aeros[i]["CD"][:index_stall[i]+1]
+            spl_cl_cd = InterpolatedModel(CL_no_stall,CD_no_stall)
+            spl_aoa_cd = InterpolatedModel(alphas, aeros[i]["CD"])
+            if self.Cl[i] <= CL_max :
+                Cdp_l = spl_cl_cd(self.Cl[i])
+            else:
+                Cdp_l = spl_aoa_cd(self.ideal_aoa[i])
+            Dp += Cdp_l*0.5*self.op_point.atmosphere.density()*self.op_point.velocity**2*areas[i]
         Dp *= 2
         
 
