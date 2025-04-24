@@ -167,8 +167,8 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
                 add_camber=True,
             )
             #place middle section to zero
-            points[faces[:self.chordwise_resolution, :2], 1] = 0
-            points[faces[faces.shape[0]//2:faces.shape[0]//2+self.chordwise_resolution, 2:4], 1] = 0
+            #points[faces[:self.chordwise_resolution, :2], 1] = 0
+            #points[faces[faces.shape[0]//2:faces.shape[0]//2+self.chordwise_resolution, 2:4], 1] = 0
             
             front_left_vertices.append(points[faces[:, 0], :])
             back_left_vertices.append(points[faces[:, 1], :])
@@ -380,11 +380,15 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
         chords = np.linalg.norm(chord_vectors, axis=1)
 
         # local CL calculation
-        chordwise_forces = np.sum(forces_inviscid_geometry.reshape([nx, ny, 3], order = "F")[:,:ny//2,:], axis=0)
-        freestream_lift_dir = np.tile(np.cross(self.steady_freestream_direction, [0, 1,0]), (ny//2, 1)) 
-        dihedral = np.arctan(normal_directions[:ny//2, 1]/normal_directions[:ny//2, 2])
+        cFx = np.sum(forces_inviscid_geometry[:, 0].reshape((ny, nx))[:ny//2,:], axis=1)
+        cFy = np.sum(forces_inviscid_geometry[:, 1].reshape((ny, nx))[:ny//2,:], axis=1)
+        cFz = np.sum(forces_inviscid_geometry[:, 2].reshape((ny, nx))[:ny//2,:], axis=1)
 
-        l = np.sin(dihedral)*chordwise_forces[:,1] + np.cos(dihedral)*np.einsum('ij,ij->i', chordwise_forces,freestream_lift_dir)
+        freestream_lift_dir = np.cross(self.steady_freestream_direction, [0, 1,0])
+        dihedral = np.arctan(normal_directions[:ny//2, 1]/normal_directions[:ny//2, 2])
+        dx = freestream_lift_dir[0]
+        dz = freestream_lift_dir[2]
+        l = np.sin(dihedral)*cFy + np.cos(dihedral)*(cFx*dx + cFz*dz)
         Cl = l/(0.5*self.op_point.atmosphere.density()*self.op_point.velocity**2*areas[:ny//2])
         self.Cl = Cl
         self.ideal_aoa = Cl/(2*np.pi)
@@ -419,6 +423,7 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
             CD_no_stall = aeros[i]["CD"][:index_stall[i]+1]
             spl_cl_cd = InterpolatedModel(CL_no_stall,CD_no_stall)
             spl_aoa_cd = InterpolatedModel(alphas, aeros[i]["CD"])
+            Cdp_l = spl_cl_cd(self.Cl[i])
             if self.Cl[i] <= CL_max :
                 Cdp_l = spl_cl_cd(self.Cl[i])
             else:
