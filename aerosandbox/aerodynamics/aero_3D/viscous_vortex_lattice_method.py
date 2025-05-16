@@ -58,9 +58,9 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
         ] = np.cosspace,
         vortex_core_radius: float = 1e-8,
         align_trailing_vortices_with_wind: bool = True,
-        n_crit: float = 9.,
-        xtr_upper: float = 1.,
-        xtr_lower: float = 1.,
+        n_crit: float = 9.0,
+        xtr_upper: float = 1.0,
+        xtr_lower: float = 1.0,
         viscous: bool = True,
     ):
         super().__init__()
@@ -168,10 +168,10 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
                 chordwise_spacing_function=self.chordwise_spacing_function,
                 add_camber=True,
             )
-            #place middle section to zero
-            #points[faces[:self.chordwise_resolution, :2], 1] = 0
-            #points[faces[faces.shape[0]//2:faces.shape[0]//2+self.chordwise_resolution, 2:4], 1] = 0
-            
+            # place middle section to zero
+            # points[faces[:self.chordwise_resolution, :2], 1] = 0
+            # points[faces[faces.shape[0]//2:faces.shape[0]//2+self.chordwise_resolution, 2:4], 1] = 0
+
             front_left_vertices.append(points[faces[:, 0], :])
             back_left_vertices.append(points[faces[:, 1], :])
             back_right_vertices.append(points[faces[:, 2], :])
@@ -195,7 +195,7 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
 
             airfoils.extend(wing_airfoils)
             control_surfaces.extend(wing_control_surfaces)
-        
+
         front_left_vertices = np.concatenate(front_left_vertices)
         back_left_vertices = np.concatenate(back_left_vertices)
         back_right_vertices = np.concatenate(back_right_vertices)
@@ -377,7 +377,7 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
         cross_norm = np.linalg.norm(cross, axis=1)
         normal_directions = cross / tall(cross_norm)
         areas = cross_norm / 2
-        
+
         # Compute the location of points of interest on each panel
         chord_vectors = (back_left_vertices + back_right_vertices) / 2 - (
             front_left_vertices + front_right_vertices
@@ -385,20 +385,33 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
         chords = np.linalg.norm(chord_vectors, axis=1)
 
         # local CL calculation
-        cFx = np.sum(forces_inviscid_geometry[:, 0].reshape((ny, nx))[:ny//2,:], axis=1)
-        cFy = np.sum(forces_inviscid_geometry[:, 1].reshape((ny, nx))[:ny//2,:], axis=1)
-        cFz = np.sum(forces_inviscid_geometry[:, 2].reshape((ny, nx))[:ny//2,:], axis=1)
+        cFx = np.sum(
+            forces_inviscid_geometry[:, 0].reshape((ny, nx))[: ny // 2, :], axis=1
+        )
+        cFy = np.sum(
+            forces_inviscid_geometry[:, 1].reshape((ny, nx))[: ny // 2, :], axis=1
+        )
+        cFz = np.sum(
+            forces_inviscid_geometry[:, 2].reshape((ny, nx))[: ny // 2, :], axis=1
+        )
 
-        freestream_lift_dir = np.cross(self.steady_freestream_direction, [0, 1,0])
-        dihedral = np.arctan(normal_directions[:ny//2, 1]/normal_directions[:ny//2, 2])
+        freestream_lift_dir = np.cross(self.steady_freestream_direction, [0, 1, 0])
+        dihedral = np.arctan(
+            normal_directions[: ny // 2, 1] / normal_directions[: ny // 2, 2]
+        )
         dx = freestream_lift_dir[0]
         dz = freestream_lift_dir[2]
-        l = np.sin(dihedral)*cFy + np.cos(dihedral)*(cFx*dx + cFz*dz)
-        Cl = l/(0.5*self.op_point.atmosphere.density()*self.op_point.velocity**2*areas[:ny//2])
+        l = np.sin(dihedral) * cFy + np.cos(dihedral) * (cFx * dx + cFz * dz)
+        Cl = l / (
+            0.5
+            * self.op_point.atmosphere.density()
+            * self.op_point.velocity**2
+            * areas[: ny // 2]
+        )
         self.Cl = Cl
-        self.ideal_aoa = Cl/(2*np.pi)
+        self.ideal_aoa = Cl / (2 * np.pi)
 
-        #Built interpolant 
+        # Built interpolant
 
         def index_up_to_peak(a: np.ndarray) -> np.ndarray:
             """
@@ -406,46 +419,89 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
             """
             peak_idx = np.argmax(a)
             return peak_idx
-        
+
         Res = self.op_point.reynolds(chords)
-        alphas = np.linspace(-10, 25, num = 50)
-        aeros = [af.get_aero_from_neuralfoil(
+        alphas = np.linspace(-10, 25, num=50)
+        aeros = [
+            af.get_aero_from_neuralfoil(
                 alpha=alphas,
                 Re=Res[i],
                 mach=0.01,
                 xtr_lower=self.xtr_lower,
                 xtr_upper=self.xtr_upper,
                 n_crit=self.n_crit,
+                model_size="xxlarge",
             )
-            for i, af in enumerate(self.airfoils)]
-        
+            for i, af in enumerate(self.airfoils)
+        ]
+        # import matplotlib.pyplot as plt
+
         index_stall = [index_up_to_peak(aero["CL"]) for aero in aeros]
         Dps = np.zeros(len(self.airfoils))
         Fps = np.zeros((len(self.airfoils), 3))
+        marcl, marcd = [], []
         for i in range(len(self.airfoils)):
             CL_max = aeros[i]["CL"][index_stall[i]]
-            CL_no_stall = aeros[i]["CL"][:index_stall[i]+1]
-            CD_no_stall = aeros[i]["CD"][:index_stall[i]+1]
-            spl_cl_cd = InterpolatedModel(CL_no_stall,CD_no_stall)
+            print("")
+            print("local_cl", self.Cl[i])
+            print("max CL", CL_max)
+            print()
+            CL_no_stall = aeros[i]["CL"][: index_stall[i] + 1]
+            CD_no_stall = aeros[i]["CD"][: index_stall[i] + 1]
+            spl_cl_cd = InterpolatedModel(CL_no_stall, CD_no_stall)
             spl_aoa_cd = InterpolatedModel(alphas, aeros[i]["CD"])
-            Cdp_l = spl_cl_cd(self.Cl[i])
-            if self.Cl[i] <= CL_max :
-                Cdp_l = spl_cl_cd(self.Cl[i])
+            # Cdp_l = spl_cl_cd(self.Cl[i])
+            if self.Cl[i] <= CL_max:
+                try:
+                    Cdp_l = spl_cl_cd(self.Cl[i])
+                except Exception:
+                    Cdp_l = 0.015
+                marcd.append(Cdp_l)
+                marcl.append(self.Cl[i])
             else:
                 Cdp_l = spl_aoa_cd(self.ideal_aoa[i])
-            Dps[i] = 2*Cdp_l*0.5*self.op_point.atmosphere.density()*self.op_point.velocity**2*areas[i]
-            Fps[i,:] = Dps[i]*self.steady_freestream_direction
+            Dps[i] = (
+                2
+                * Cdp_l
+                * 0.5
+                * self.op_point.atmosphere.density()
+                * self.op_point.velocity**2
+                * areas[i]
+            )
+            Fps[i, :] = Dps[i] * self.steady_freestream_direction
+
+        """
+        # Create plot with dual y-axis
+        fig, ax1 = plt.subplots()
+
+        # First y-axis (for CL)
+        color = "tab:blue"
+        ax1.set_ylabel("C_L", color=color)
+        ax1.plot(marcl, color=color, label="C_L")
+        ax1.tick_params(axis="y", labelcolor=color)
+
+        # Second y-axis (for CD)
+        ax2 = ax1.twinx()
+        color = "tab:red"
+        ax2.set_ylabel("C_D", color=color)
+        ax2.plot(marcd, color=color, linestyle="--", label="C_D")
+        ax2.tick_params(axis="y", labelcolor=color)
+
+        # Optional: Add legends and title
+        fig.suptitle("Lift and Drag Coefficients vs Angle of Attack")
+        fig.tight_layout()
+        plt.show()
+        """
         Dp = np.sum(Dps)
         moments_profile_geometry = np.cross(
-            np.add(vortex_centers[:ny//2, :], -wide(np.array(self.xyz_ref))),
-            Fps
+            np.add(vortex_centers[: ny // 2, :], -wide(np.array(self.xyz_ref))), Fps
         )
         if self.viscous:
             moment_profile_geometry = np.sum(moments_profile_geometry, axis=0)
         else:
             moment_profile_geometry = np.zeros(3)
             Dp = 0
-        
+
         # Calculate total forces and moments
         force_inviscid_geometry = np.sum(forces_inviscid_geometry, axis=0)
         moment_inviscid_geometry = np.sum(moments_inviscid_geometry, axis=0)
@@ -500,7 +556,9 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
             )
         )
 
-        moment_total_geometry = np.add(moment_inviscid_geometry, moment_profile_geometry)
+        moment_total_geometry = np.add(
+            moment_inviscid_geometry, moment_profile_geometry
+        )
 
         moment_total_body = np.array(
             self.op_point.convert_axes(
@@ -568,16 +626,16 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
             "Cm": self.Cm,
             "Cn": self.Cn,
         }
-    
+
     def run_viscous(self):
         aero = self.run(init=True)
         gamma_init = self.vortex_strengths
-        
+
         def fun(gamma):
-            aero = self.run(init=False, gamma= gamma)
+            aero = self.run(init=False, gamma=gamma)
             residuals = self.residuals
             return residuals
-        
+
         sol = optimize.root(fun, gamma_init)
         return aero
 
