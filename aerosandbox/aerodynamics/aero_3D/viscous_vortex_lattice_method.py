@@ -413,15 +413,17 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
 
         # Built interpolant
 
-        def index_up_to_peak(a: np.ndarray) -> np.ndarray:
+        def index_xtrem(a: np.ndarray) -> np.ndarray:
             """
             Returns the sub-array from the start up through the first maximum.
             """
-            peak_idx = np.argmax(a)
-            return peak_idx
+            min_idx = np.argmin(a)
+            max_idx = np.argmax(a)
+            return min_idx, max_idx
 
         Res = self.op_point.reynolds(chords)
-        alphas = np.linspace(-10, 25, num=50)
+        # not under 100 samples, otherwise
+        alphas = np.linspace(-10, 25, num=100)
         aeros = [
             af.get_aero_from_neuralfoil(
                 alpha=alphas,
@@ -436,26 +438,24 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
         ]
         # import matplotlib.pyplot as plt
 
-        index_stall = [index_up_to_peak(aero["CL"]) for aero in aeros]
+        index_stall = [index_xtrem(aero["CL"]) for aero in aeros]
+
         Dps = np.zeros(len(self.airfoils))
         Fps = np.zeros((len(self.airfoils), 3))
         marcl, marcd = [], []
         for i in range(len(self.airfoils)):
-            CL_max = aeros[i]["CL"][index_stall[i]]
-            print("")
-            print("local_cl", self.Cl[i])
-            print("max CL", CL_max)
-            print()
-            CL_no_stall = aeros[i]["CL"][: index_stall[i] + 1]
-            CD_no_stall = aeros[i]["CD"][: index_stall[i] + 1]
-            spl_cl_cd = InterpolatedModel(CL_no_stall, CD_no_stall)
+            CL_max = aeros[i]["CL"][index_stall[i][1]]
+            CL_min = aeros[i]["CL"][index_stall[i][0]]
+            # print("max CL", CL_max)
+            # print(np.diff(aeros[i]["CL"]))
+            # print([k for k in range(len(aeros[i]["CL"]))])
+            CL_no_stall = aeros[i]["CL"][index_stall[i][0] : index_stall[i][1] + 1]
+            CD_no_stall = aeros[i]["CD"][index_stall[i][0] : index_stall[i][1] + 1]
+            spl_cl_cd = InterpolatedModel(CL_no_stall, CD_no_stall, method="bspline")
             spl_aoa_cd = InterpolatedModel(alphas, aeros[i]["CD"])
-            # Cdp_l = spl_cl_cd(self.Cl[i])
-            if self.Cl[i] <= CL_max:
-                try:
-                    Cdp_l = spl_cl_cd(self.Cl[i])
-                except Exception:
-                    Cdp_l = 0.015
+            # plt.plot(CL_no_stall, CD_no_stall)
+            if CL_min <= self.Cl[i] and self.Cl[i] <= CL_max:
+                Cdp_l = spl_cl_cd(self.Cl[i])
                 marcd.append(Cdp_l)
                 marcl.append(self.Cl[i])
             else:
@@ -469,29 +469,10 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
                 * areas[i]
             )
             Fps[i, :] = Dps[i] * self.steady_freestream_direction
+        # print(f"Cl_{self.chordwise_resolution}=", marcl)
+        # print(f"Cd_{self.chordwise_resolution}=", marcd)
+        # plt.show()
 
-        """
-        # Create plot with dual y-axis
-        fig, ax1 = plt.subplots()
-
-        # First y-axis (for CL)
-        color = "tab:blue"
-        ax1.set_ylabel("C_L", color=color)
-        ax1.plot(marcl, color=color, label="C_L")
-        ax1.tick_params(axis="y", labelcolor=color)
-
-        # Second y-axis (for CD)
-        ax2 = ax1.twinx()
-        color = "tab:red"
-        ax2.set_ylabel("C_D", color=color)
-        ax2.plot(marcd, color=color, linestyle="--", label="C_D")
-        ax2.tick_params(axis="y", labelcolor=color)
-
-        # Optional: Add legends and title
-        fig.suptitle("Lift and Drag Coefficients vs Angle of Attack")
-        fig.tight_layout()
-        plt.show()
-        """
         Dp = np.sum(Dps)
         moments_profile_geometry = np.cross(
             np.add(vortex_centers[: ny // 2, :], -wide(np.array(self.xyz_ref))), Fps
