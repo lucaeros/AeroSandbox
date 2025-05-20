@@ -337,8 +337,9 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
         ## VISCOUS built-up
         nx = self.chordwise_resolution
         ny = forces_inviscid_geometry.shape[0] // nx
+        ny_2 = ny // 2
 
-        # trapezoidal geometry
+        # trapezoidal geometry with only 1 panel chordwise
         front_left_vertices = []
         back_left_vertices = []
         back_right_vertices = []
@@ -378,6 +379,12 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
         normal_directions = cross / tall(cross_norm)
         areas = cross_norm / 2
 
+        span_centers = vortex_centers[:ny_2, 1]
+        span_centers_normalized = span_centers / vortex_centers[ny_2 - 1, 1]
+        span_edges = np.append(
+            left_vortex_vertices[:ny_2, 1], right_vortex_vertices[ny_2 - 1, 1]
+        )
+
         # Compute the location of points of interest on each panel
         chord_vectors = (back_left_vertices + back_right_vertices) / 2 - (
             front_left_vertices + front_right_vertices
@@ -385,31 +392,33 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
         chords = np.linalg.norm(chord_vectors, axis=1)
 
         # local CL calculation
-        cFx = np.sum(
-            forces_inviscid_geometry[:, 0].reshape((ny, nx))[: ny // 2, :], axis=1
-        )
-        cFy = np.sum(
-            forces_inviscid_geometry[:, 1].reshape((ny, nx))[: ny // 2, :], axis=1
-        )
-        cFz = np.sum(
-            forces_inviscid_geometry[:, 2].reshape((ny, nx))[: ny // 2, :], axis=1
-        )
+        cFx = np.sum(forces_inviscid_geometry[:, 0].reshape((ny, nx))[:ny_2, :], axis=1)
+        cFy = np.sum(forces_inviscid_geometry[:, 1].reshape((ny, nx))[:ny_2, :], axis=1)
+        cFz = np.sum(forces_inviscid_geometry[:, 2].reshape((ny, nx))[:ny_2, :], axis=1)
 
         freestream_lift_dir = np.cross(self.steady_freestream_direction, [0, 1, 0])
-        dihedral = np.arctan(
-            normal_directions[: ny // 2, 1] / normal_directions[: ny // 2, 2]
-        )
+        dihedral = np.arctan(normal_directions[:ny_2, 1] / normal_directions[:ny_2, 2])
         dx = freestream_lift_dir[0]
         dz = freestream_lift_dir[2]
-        l = np.sin(dihedral) * cFy + np.cos(dihedral) * (cFx * dx + cFz * dz)
-        Cl = l / (
+        local_lift = cFx * dx + cFz * dz
+        local_lift_normal = np.sin(dihedral) * cFy + np.cos(dihedral) * local_lift
+        # circulation distribution gamma(y)
+        local_load = local_lift * chords[:ny_2] / areas[:ny_2]
+        # elliptical load distribution with normalized lift
+        ell_load_normalized = 4 * np.sqrt(1 - span_centers_normalized**2) / (np.pi)
+        total_load = np.sum(
+            local_load * (span_edges[1:] - span_edges[:-1]) / span_edges[-1]
+        )
+        # normalized circulation distribution
+        local_load_normalized = local_load / total_load
+        local_cl = local_lift_normal / (
             0.5
             * self.op_point.atmosphere.density()
             * self.op_point.velocity**2
-            * areas[: ny // 2]
+            * areas[:ny_2]
         )
-        self.Cl = Cl
-        self.ideal_aoa = Cl / (2 * np.pi)
+        self.local_cl = local_cl
+        self.ideal_aoa = local_cl / (2 * np.pi)
 
         # Built interpolant
 
@@ -439,10 +448,9 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
         # import matplotlib.pyplot as plt
 
         index_stall = [index_xtrem(aero["CL"]) for aero in aeros]
-
+        Cdps = np.zeros(len(self.airfoils))
         Dps = np.zeros(len(self.airfoils))
         Fps = np.zeros((len(self.airfoils), 3))
-        marcl, marcd = [], []
         for i in range(len(self.airfoils)):
             CL_max = aeros[i]["CL"][index_stall[i][1]]
             CL_min = aeros[i]["CL"][index_stall[i][0]]
@@ -454,15 +462,13 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
             spl_cl_cd = InterpolatedModel(CL_no_stall, CD_no_stall, method="bspline")
             spl_aoa_cd = InterpolatedModel(alphas, aeros[i]["CD"])
             # plt.plot(CL_no_stall, CD_no_stall)
-            if CL_min <= self.Cl[i] and self.Cl[i] <= CL_max:
-                Cdp_l = spl_cl_cd(self.Cl[i])
-                marcd.append(Cdp_l)
-                marcl.append(self.Cl[i])
+            if CL_min <= self.local_cl[i] and self.local_cl[i] <= CL_max:
+                Cdps[i] = spl_cl_cd(self.local_cl[i])
             else:
-                Cdp_l = spl_aoa_cd(self.ideal_aoa[i])
+                Cdps[i] = spl_aoa_cd(self.ideal_aoa[i])
             Dps[i] = (
                 2
-                * Cdp_l
+                * Cdps[i]
                 * 0.5
                 * self.op_point.atmosphere.density()
                 * self.op_point.velocity**2
@@ -475,7 +481,7 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
 
         Dp = np.sum(Dps)
         moments_profile_geometry = np.cross(
-            np.add(vortex_centers[: ny // 2, :], -wide(np.array(self.xyz_ref))), Fps
+            np.add(vortex_centers[:ny_2, :], -wide(np.array(self.xyz_ref))), Fps
         )
         if self.viscous:
             moment_profile_geometry = np.sum(moments_profile_geometry, axis=0)
@@ -585,6 +591,12 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
 
         self.CL_over_CD = np.where(self.CD == 0, 0, np.array(self.CL / self.CD))
         return {
+            "span_normalized": span_centers_normalized,
+            "load_ell": ell_load_normalized,  # elliptical normalized circulations
+            "load_normalized": local_load_normalized,  # local normalized circulations
+            "cdp": Cdps,  # local profile drag coeff
+            "cl": self.local_cl,  # local lift coeff
+            "load": local_load,
             "F_g": force_total_geometry,
             "F_b": force_total_body,
             "F_w": force_total_wind,
@@ -607,18 +619,6 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
             "Cm": self.Cm,
             "Cn": self.Cn,
         }
-
-    def run_viscous(self):
-        aero = self.run(init=True)
-        gamma_init = self.vortex_strengths
-
-        def fun(gamma):
-            aero = self.run(init=False, gamma=gamma)
-            residuals = self.residuals
-            return residuals
-
-        sol = optimize.root(fun, gamma_init)
-        return aero
 
     def run_with_stability_derivatives(
         self,
