@@ -437,7 +437,7 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
             af.get_aero_from_neuralfoil(
                 alpha=alphas,
                 Re=Res[i],
-                mach=0.01,
+                mach=0.03,
                 xtr_lower=self.xtr_lower,
                 xtr_upper=self.xtr_upper,
                 n_crit=self.n_crit,
@@ -454,7 +454,7 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
         for i in range(len(self.airfoils)):
             CL_max = aeros[i]["CL"][index_stall[i][1]]
             CL_min = aeros[i]["CL"][index_stall[i][0]]
-            # print("max CL", CL_max)
+
             # print(np.diff(aeros[i]["CL"]))
             # print([k for k in range(len(aeros[i]["CL"]))])
             CL_no_stall = aeros[i]["CL"][index_stall[i][0] : index_stall[i][1] + 1]
@@ -465,7 +465,24 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
             if CL_min <= self.local_cl[i] and self.local_cl[i] <= CL_max:
                 Cdps[i] = spl_cl_cd(self.local_cl[i])
             else:
-                Cdps[i] = spl_aoa_cd(self.ideal_aoa[i])
+                # alpha_stall = alphas[index_stall[i][1]] *  2 *
+                print("local CL", self.local_cl[i])
+                print("max CL", CL_max)
+                print("alpha stall", alphas[index_stall[i][1]])
+                print("ideal aoa", self.ideal_aoa[i])
+                alpha_stalled = (self.local_cl[i] - CL_max) / (2 * np.pi) + alphas[
+                    index_stall[i][1]
+                ] * np.pi / 180
+                print
+                # Cdps[i] = spl_aoa_cd(self.ideal_aoa[i] * 180 / (np.pi))
+                print("aoa recomputed", alpha_stalled * 180 / (np.pi))
+            # Cdps[i] = spl_aoa_cd(alpha_stalled * 180 / (np.pi))
+            Cdps[i] = spl_aoa_cd(self.ideal_aoa[i] * 180 / (np.pi))
+            # alpha_stalled = (self.local_cl[i] - CL_max) / (2 * np.pi) + alphas[
+            #    index_stall[i][1]
+            # ] * np.pi / 180
+            # Cdps[i] = spl_aoa_cd(alpha_stalled * 180 / (np.pi))
+            # Cdps[i] = spl_cl_cd(self.local_cl[i])
             Dps[i] = (
                 2
                 * Cdps[i]
