@@ -129,7 +129,7 @@ class NonlinearLiftingLine(ImplicitAnalysis):
             + "\n)"
         )
 
-    def run(self, solve: bool = True) -> Dict[str, Any]:
+    def run(self, solve: bool = True, vortex_strength_init = []) -> Dict[str, Any]:
         """
         Computes the aerodynamic forces.
 
@@ -303,7 +303,11 @@ class NonlinearLiftingLine(ImplicitAnalysis):
         self.n_panels = areas.shape[0]
 
         # Set up implicit solve (explicit is not possible for general nonlinear problem)
-        vortex_strengths = self.opti.variable(init_guess=np.zeros(shape=self.n_panels))
+        if len(vortex_strength_init) == 0:
+            vortex_strengths = self.opti.variable(init_guess=np.zeros(shape=self.n_panels))
+        else: 
+            print(1)
+            vortex_strengths = self.opti.variable(init_guess=vortex_strength_init)
         # scale =self.op_point.velocity) )
         self.vortex_strengths = vortex_strengths
 
@@ -375,7 +379,7 @@ class NonlinearLiftingLine(ImplicitAnalysis):
 
             self.sol = self.opti.solve(verbose=False)
             self.vortex_strengths = self.sol(vortex_strengths)
-
+        print(self.vortex_strengths.tolist())
         ##### Calculate forces
         ### Calculate Near-Field Forces and Moments
         # Governing Equation: The force on a straight, small vortex filament is F = rho * cross(V, l) * gamma,
