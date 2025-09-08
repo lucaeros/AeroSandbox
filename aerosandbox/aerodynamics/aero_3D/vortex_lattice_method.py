@@ -156,10 +156,10 @@ class VortexLatticeMethod(ExplicitAnalysis):
                 chordwise_spacing_function=self.chordwise_spacing_function,
                 add_camber=True,
             )
-            #place middle section to zero
-            points[faces[:self.chordwise_resolution, :2], 1] = 0
-            points[faces[faces.shape[0]//2:faces.shape[0]//2+self.chordwise_resolution, 2:4], 1] = 0
-            
+            # place middle section to zero
+            # points[faces[:self.chordwise_resolution, :2], 1] = 0
+            # points[faces[faces.shape[0]//2:faces.shape[0]//2+self.chordwise_resolution, 2:4], 1] = 0
+
             front_left_vertices.append(points[faces[:, 0], :])
             back_left_vertices.append(points[faces[:, 1], :])
             back_right_vertices.append(points[faces[:, 2], :])
@@ -167,7 +167,7 @@ class VortexLatticeMethod(ExplicitAnalysis):
             is_trailing_edge.append(
                 (np.arange(len(faces)) + 1) % self.chordwise_resolution == 0
             )
-        
+
         front_left_vertices = np.concatenate(front_left_vertices)
         back_left_vertices = np.concatenate(back_left_vertices)
         back_right_vertices = np.concatenate(back_right_vertices)

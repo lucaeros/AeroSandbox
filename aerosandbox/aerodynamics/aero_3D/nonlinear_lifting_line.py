@@ -57,10 +57,9 @@ class NonlinearLiftingLine(ImplicitAnalysis):
         ] = np.cosspace,
         vortex_core_radius: float = 1e-8,
         align_trailing_vortices_with_wind: bool = False,
-        n_crit: float = 9.,
-        xtr_upper: float = 1.,
-        xtr_lower: float = 1.,
-
+        n_crit: float = 9.0,
+        xtr_upper: float = 1.0,
+        xtr_lower: float = 1.0,
     ):
         """
         Initializes and conducts a NonlinearLiftingLine analysis.
@@ -344,6 +343,7 @@ class NonlinearLiftingLine(ImplicitAnalysis):
                 xtr_lower=self.xtr_lower,
                 xtr_upper=self.xtr_upper,
                 n_crit=self.n_crit,
+                model_size="large",
             )
             for i, af in enumerate(self.airfoils)
         ]
@@ -377,7 +377,7 @@ class NonlinearLiftingLine(ImplicitAnalysis):
         if self.solve:
             self.opti.subject_to([residuals == 0])
 
-            self.sol = self.opti.solve(verbose=False)
+            self.sol = self.opti.solve(verbose=True)
             self.vortex_strengths = self.sol(vortex_strengths)
         print(self.vortex_strengths.tolist())
         ##### Calculate forces
