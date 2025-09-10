@@ -474,10 +474,10 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
                     index_stall[i][1]
                 ] * np.pi / 180
                 print
-                # Cdps[i] = spl_aoa_cd(self.ideal_aoa[i] * 180 / (np.pi))
+                dps[i] = spl_aoa_cd(self.ideal_aoa[i] * 180 / (np.pi))
                 print("aoa recomputed", alpha_stalled * 180 / (np.pi))
             # Cdps[i] = spl_aoa_cd(alpha_stalled * 180 / (np.pi))
-            Cdps[i] = spl_aoa_cd(self.ideal_aoa[i] * 180 / (np.pi))
+            # Cdps[i] = spl_aoa_cd(self.ideal_aoa[i] * 180 / (np.pi))
             # alpha_stalled = (self.local_cl[i] - CL_max) / (2 * np.pi) + alphas[
             #    index_stall[i][1]
             # ] * np.pi / 180

@@ -571,7 +571,7 @@ class Opti(cas.Opti):
         verbose: bool = True,
         jit: bool = False,  # TODO document, add unit tests for jit
         detect_simple_bounds: bool = False,  # TODO document
-        expand: bool = False, # TODO document
+        expand: bool = False,  # TODO document
         options: Dict = None,  # TODO document
         behavior_on_failure: str = "raise",
     ) -> "OptiSol":
@@ -706,10 +706,10 @@ class Opti(cas.Opti):
 
         self.solver(
             "ipopt",
-            {
-                **default_options,
-                **options,
-            },
+            # {
+            #    **default_options,
+            #    **options,
+            # },
         )
 
         # Set the callback

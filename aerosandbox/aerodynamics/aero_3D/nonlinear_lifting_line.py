@@ -128,7 +128,7 @@ class NonlinearLiftingLine(ImplicitAnalysis):
             + "\n)"
         )
 
-    def run(self, solve: bool = True, vortex_strength_init = []) -> Dict[str, Any]:
+    def run(self, solve: bool = True, vortex_strengths_init=[]) -> Dict[str, Any]:
         """
         Computes the aerodynamic forces.
 
@@ -184,6 +184,16 @@ class NonlinearLiftingLine(ImplicitAnalysis):
                 chordwise_resolution=1,
                 add_camber=False,
             )
+
+            # place middle section to zero
+            points[faces[:1, :2], 1] = 0
+            points[
+                faces[
+                    faces.shape[0] // 2 : faces.shape[0] // 2 + 1,
+                    2:4,
+                ],
+                1,
+            ] = 0
 
             front_left_vertices.append(points[faces[:, 0], :])
             back_left_vertices.append(points[faces[:, 1], :])
@@ -302,11 +312,15 @@ class NonlinearLiftingLine(ImplicitAnalysis):
         self.n_panels = areas.shape[0]
 
         # Set up implicit solve (explicit is not possible for general nonlinear problem)
-        if len(vortex_strength_init) == 0:
-            vortex_strengths = self.opti.variable(init_guess=np.zeros(shape=self.n_panels))
-        else: 
+        if len(vortex_strengths_init) == 0:
+            vortex_strengths = self.opti.variable(
+                init_guess=np.zeros(shape=self.n_panels)
+            )
+        else:
             print(1)
-            vortex_strengths = self.opti.variable(init_guess=vortex_strength_init)
+            vortex_strengths = self.opti.variable(
+                init_guess=vortex_strengths_init, scale=10
+            )
         # scale =self.op_point.velocity) )
         self.vortex_strengths = vortex_strengths
 
@@ -343,7 +357,7 @@ class NonlinearLiftingLine(ImplicitAnalysis):
                 xtr_lower=self.xtr_lower,
                 xtr_upper=self.xtr_upper,
                 n_crit=self.n_crit,
-                model_size="large",
+                model_size="xxxlarge",
             )
             for i, af in enumerate(self.airfoils)
         ]
@@ -376,8 +390,12 @@ class NonlinearLiftingLine(ImplicitAnalysis):
 
         if self.solve:
             self.opti.subject_to([residuals == 0])
-
-            self.sol = self.opti.solve(verbose=True)
+            self.opti.subject_to(
+                [vortex_strengths >= 0, vortex_strengths <= 100]
+            )  # to avoid diverging behavior
+            self.sol = self.opti.solve(
+                verbose=True, detect_simple_bounds=True, jit=True
+            )
             self.vortex_strengths = self.sol(vortex_strengths)
         print(self.vortex_strengths.tolist())
         ##### Calculate forces
@@ -585,6 +603,7 @@ class NonlinearLiftingLine(ImplicitAnalysis):
             "Cl": self.Cl,
             "Cm": self.Cm,
             "Cn": self.Cn,
+            "vortex_strengths": self.vortex_strengths,
         }
 
     def get_induced_velocity_at_points(
