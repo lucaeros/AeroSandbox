@@ -232,6 +232,7 @@ class Airplane(AeroSandboxObject):
         set_axis_visibility: bool = None,
         show: bool = True,
         show_kwargs: Dict = None,
+        fig=None,
     ):
         """
         Produces an interactive 3D visualization of the airplane.

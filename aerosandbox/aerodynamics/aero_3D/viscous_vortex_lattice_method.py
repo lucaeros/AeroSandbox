@@ -454,7 +454,6 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
         for i in range(len(self.airfoils)):
             CL_max = aeros[i]["CL"][index_stall[i][1]]
             CL_min = aeros[i]["CL"][index_stall[i][0]]
-
             # print(np.diff(aeros[i]["CL"]))
             # print([k for k in range(len(aeros[i]["CL"]))])
             CL_no_stall = aeros[i]["CL"][index_stall[i][0] : index_stall[i][1] + 1]
@@ -473,9 +472,8 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
                 alpha_stalled = (self.local_cl[i] - CL_max) / (2 * np.pi) + alphas[
                     index_stall[i][1]
                 ] * np.pi / 180
-                print
-                dps[i] = spl_aoa_cd(self.ideal_aoa[i] * 180 / (np.pi))
-                print("aoa recomputed", alpha_stalled * 180 / (np.pi))
+                Cdps[i] = spl_aoa_cd(alpha_stalled[i] * 180 / (np.pi))
+                print("aoa recomputed", alpha_stalled[i] * 180 / (np.pi))
             # Cdps[i] = spl_aoa_cd(alpha_stalled * 180 / (np.pi))
             # Cdps[i] = spl_aoa_cd(self.ideal_aoa[i] * 180 / (np.pi))
             # alpha_stalled = (self.local_cl[i] - CL_max) / (2 * np.pi) + alphas[

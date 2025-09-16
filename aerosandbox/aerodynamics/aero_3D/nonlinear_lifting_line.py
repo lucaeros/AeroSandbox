@@ -317,7 +317,7 @@ class NonlinearLiftingLine(ImplicitAnalysis):
                 init_guess=np.zeros(shape=self.n_panels)
             )
         else:
-            print(1)
+            print("init of vortex strengths")
             vortex_strengths = self.opti.variable(
                 init_guess=vortex_strengths_init, scale=10
             )
@@ -357,7 +357,7 @@ class NonlinearLiftingLine(ImplicitAnalysis):
                 xtr_lower=self.xtr_lower,
                 xtr_upper=self.xtr_upper,
                 n_crit=self.n_crit,
-                model_size="xxxlarge",
+                model_size="xxlarge",
             )
             for i, af in enumerate(self.airfoils)
         ]
