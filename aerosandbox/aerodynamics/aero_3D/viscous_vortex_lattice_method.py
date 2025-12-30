@@ -391,6 +391,63 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
         ) / 2
         chords = np.linalg.norm(chord_vectors, axis=1)
 
+        # local moment calculation
+        cMx = np.sum(
+            moments_inviscid_geometry[:, 0].reshape((ny, nx))[:ny_2, :], axis=1
+        )
+        cMy = np.sum(
+            moments_inviscid_geometry[:, 1].reshape((ny, nx))[:ny_2, :], axis=1
+        )
+        cMz = np.sum(
+            moments_inviscid_geometry[:, 2].reshape((ny, nx))[:ny_2, :], axis=1
+        )
+
+        ##plan normal to xyzref -wing
+        normals_refxyz_wing = np.cross(
+            np.add(vortex_centers, -wide(np.array(self.xyz_ref))),
+            wide(np.array([1, 0, 0])),
+        )[:ny_2, :]
+        normals_refxyz_wing = normals_refxyz_wing / np.linalg.norm(
+            normals_refxyz_wing, axis=1, keepdims=True
+        )
+        ##ebug
+        # centers: (N, 3), normals: (N, 3)
+        """
+        import matplotlib.pyplot as plt
+
+        x = vortex_centers[:ny_2, 1]
+        y = vortex_centers[:ny_2, 2]
+
+        u = normal_directions[:ny_2, 1]
+        v = normal_directions[:ny_2, 2]
+
+        u1 = normal_refxyz_wing[:ny_2, 1]
+        v1 = normal_refxyz_wing[:ny_2, 2]
+
+        fig, ax = plt.subplots()
+
+        # reference point
+        x0, y0 = self.xyz_ref[1], self.xyz_ref[2]
+        ax.scatter(x0, y0, zorder=3)
+
+        # lines from xyz_ref to each vortex center (fast, single call)
+        for xi, yi in zip(x, y):
+            ax.plot([x0, xi], [y0, yi], linewidth=0.8, alpha=0.4, zorder=1)
+
+        # quivers
+        ax.quiver(
+            x, y, u, v, angles="xy", scale_units="xy", scale=1, width=0.003, zorder=2
+        )
+        ax.quiver(
+            x, y, u1, v1, angles="xy", scale_units="xy", scale=1, width=0.003, zorder=2
+        )
+
+        ax.set_aspect("equal")
+        ax.set_xlabel("y")  # you are plotting centers[:,1]
+        ax.set_ylabel("z")  # you are plotting centers[:,2]
+        plt.show()
+        """
+        ##
         # local CL calculation
         cFx = np.sum(forces_inviscid_geometry[:, 0].reshape((ny, nx))[:ny_2, :], axis=1)
         cFy = np.sum(forces_inviscid_geometry[:, 1].reshape((ny, nx))[:ny_2, :], axis=1)
@@ -465,15 +522,15 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
                 Cdps[i] = spl_cl_cd(self.local_cl[i])
             else:
                 # alpha_stall = alphas[index_stall[i][1]] *  2 *
-                print("local CL", self.local_cl[i])
+                print("local CL", i, self.local_cl[i])
                 print("max CL", CL_max)
                 print("alpha stall", alphas[index_stall[i][1]])
                 print("ideal aoa", self.ideal_aoa[i])
                 alpha_stalled = (self.local_cl[i] - CL_max) / (2 * np.pi) + alphas[
                     index_stall[i][1]
                 ] * np.pi / 180
-                Cdps[i] = spl_aoa_cd(alpha_stalled[i] * 180 / (np.pi))
-                print("aoa recomputed", alpha_stalled[i] * 180 / (np.pi))
+                Cdps[i] = spl_aoa_cd(alphas[index_stall[i][1]])
+                # print("aoa recomputed", alpha_stalled[i] * 180 / (np.pi))
             # Cdps[i] = spl_aoa_cd(alpha_stalled * 180 / (np.pi))
             # Cdps[i] = spl_aoa_cd(self.ideal_aoa[i] * 180 / (np.pi))
             # alpha_stalled = (self.local_cl[i] - CL_max) / (2 * np.pi) + alphas[
@@ -482,7 +539,7 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
             # Cdps[i] = spl_aoa_cd(alpha_stalled * 180 / (np.pi))
             # Cdps[i] = spl_cl_cd(self.local_cl[i])
             Dps[i] = (
-                2
+                2  # to account for both sides
                 * Cdps[i]
                 * 0.5
                 * self.op_point.atmosphere.density()
@@ -493,11 +550,14 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
         # print(f"Cl_{self.chordwise_resolution}=", marcl)
         # print(f"Cd_{self.chordwise_resolution}=", marcd)
         # plt.show()
-
         Dp = np.sum(Dps)
         moments_profile_geometry = np.cross(
             np.add(vortex_centers[:ny_2, :], -wide(np.array(self.xyz_ref))), Fps
         )
+        moments_total_geometry = (
+            0.5 * moments_profile_geometry.copy()
+        )  # half of total distribution fordistribution
+        moments_total_geometry += np.column_stack((cMx, cMy, cMz))
         if self.viscous:
             moment_profile_geometry = np.sum(moments_profile_geometry, axis=0)
         else:
@@ -507,6 +567,7 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
         # Calculate total forces and moments
         force_inviscid_geometry = np.sum(forces_inviscid_geometry, axis=0)
         moment_inviscid_geometry = np.sum(moments_inviscid_geometry, axis=0)
+        moment_total_geometry2 = np.sum(moments_total_geometry, axis=0)
 
         # # Inviscid force from geometry to body and wind axes
         force_inviscid_body = np.array(
@@ -561,7 +622,8 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
         moment_total_geometry = np.add(
             moment_inviscid_geometry, moment_profile_geometry
         )
-
+        print("1", moment_total_geometry)
+        print("2", moment_total_geometry2)
         moment_total_body = np.array(
             self.op_point.convert_axes(
                 moment_total_geometry[0],
@@ -603,7 +665,7 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
         self.Cl = l_b / q / s_ref / b_ref
         self.Cm = m_b / q / s_ref / c_ref
         self.Cn = n_b / q / s_ref / b_ref
-
+        print("Total CL", self.CL)
         self.CL_over_CD = np.where(self.CD == 0, 0, np.array(self.CL / self.CD))
         return {
             "span_normalized": span_centers_normalized,
@@ -611,6 +673,8 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
             "load_normalized": local_load_normalized,  # local normalized circulations
             "cdp": Cdps,  # local profile drag coeff
             "cl": self.local_cl,  # local lift coeff
+            "moments": moments_total_geometry,
+            "normals_refxyz_wing": normals_refxyz_wing,
             "load": local_load,
             "F_g": force_total_geometry,
             "F_b": force_total_body,

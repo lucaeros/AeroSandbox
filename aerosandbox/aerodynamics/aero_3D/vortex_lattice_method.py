@@ -372,6 +372,7 @@ class VortexLatticeMethod(ExplicitAnalysis):
             "n_b": n_b,
             "CL": CL,
             "CD": CD,
+            "CDi": CD,
             "CY": CY,
             "Cl": Cl,
             "Cm": Cm,
