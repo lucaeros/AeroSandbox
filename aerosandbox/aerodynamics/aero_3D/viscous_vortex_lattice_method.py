@@ -514,16 +514,12 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
             0.5 * moments_profile_geometry.copy()
         )  # half of total distribution fordistribution
         moments_total_geometry += np.column_stack((cMx, cMy, cMz))
-        if self.viscous:
-            moment_profile_geometry = np.sum(moments_profile_geometry, axis=0)
-        else:
-            moment_profile_geometry = np.zeros(3)
-            Dp = 0
+
+        moment_profile_geometry = np.sum(moments_profile_geometry, axis=0)
 
         # Calculate total forces and moments
         force_inviscid_geometry = np.sum(forces_inviscid_geometry, axis=0)
         moment_inviscid_geometry = np.sum(moments_inviscid_geometry, axis=0)
-        moment_total_geometry2 = np.sum(moments_total_geometry, axis=0)
 
         # # Inviscid force from geometry to body and wind axes
         force_inviscid_body = np.array(
@@ -578,8 +574,6 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
         moment_total_geometry = np.add(
             moment_inviscid_geometry, moment_profile_geometry
         )
-        print("1", moment_total_geometry)
-        print("2", moment_total_geometry2)
         moment_total_body = np.array(
             self.op_point.convert_axes(
                 moment_total_geometry[0],
@@ -621,7 +615,7 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
         self.Cl = l_b / q / s_ref / b_ref
         self.Cm = m_b / q / s_ref / c_ref
         self.Cn = n_b / q / s_ref / b_ref
-        print("Total CL", self.CL)
+
         self.CL_over_CD = np.where(self.CD == 0, 0, np.array(self.CL / self.CD))
         return {
             "span_normalized": span_centers_normalized,

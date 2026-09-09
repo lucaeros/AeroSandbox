@@ -51,6 +51,7 @@ from aerosandbox.aerodynamics import (
     XFoil,
     MSES,
     VortexLatticeMethod,
+    ViscousVortexLatticeMethod,
     LiftingLine,
     NonlinearLiftingLine,
     AeroBuildup,
