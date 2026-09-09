@@ -410,43 +410,6 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
         normals_refxyz_wing = normals_refxyz_wing / np.linalg.norm(
             normals_refxyz_wing, axis=1, keepdims=True
         )
-        ##ebug
-        # centers: (N, 3), normals: (N, 3)
-        """
-        import matplotlib.pyplot as plt
-
-        x = vortex_centers[:ny_2, 1]
-        y = vortex_centers[:ny_2, 2]
-
-        u = normal_directions[:ny_2, 1]
-        v = normal_directions[:ny_2, 2]
-
-        u1 = normal_refxyz_wing[:ny_2, 1]
-        v1 = normal_refxyz_wing[:ny_2, 2]
-
-        fig, ax = plt.subplots()
-
-        # reference point
-        x0, y0 = self.xyz_ref[1], self.xyz_ref[2]
-        ax.scatter(x0, y0, zorder=3)
-
-        # lines from xyz_ref to each vortex center (fast, single call)
-        for xi, yi in zip(x, y):
-            ax.plot([x0, xi], [y0, yi], linewidth=0.8, alpha=0.4, zorder=1)
-
-        # quivers
-        ax.quiver(
-            x, y, u, v, angles="xy", scale_units="xy", scale=1, width=0.003, zorder=2
-        )
-        ax.quiver(
-            x, y, u1, v1, angles="xy", scale_units="xy", scale=1, width=0.003, zorder=2
-        )
-
-        ax.set_aspect("equal")
-        ax.set_xlabel("y")  # you are plotting centers[:,1]
-        ax.set_ylabel("z")  # you are plotting centers[:,2]
-        plt.show()
-        """
         ##
         # local CL calculation
         cFx = np.sum(forces_inviscid_geometry[:, 0].reshape((ny, nx))[:ny_2, :], axis=1)
@@ -489,7 +452,7 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
 
         Res = self.op_point.reynolds(chords)
         # not under 100 samples, otherwise
-        alphas = np.linspace(-10, 25, num=100)
+        alphas = np.linspace(-15, 25, num=100)
         aeros = [
             af.get_aero_from_neuralfoil(
                 alpha=alphas,
@@ -502,7 +465,6 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
             )
             for i, af in enumerate(self.airfoils)
         ]
-        # import matplotlib.pyplot as plt
 
         index_stall = [index_xtrem(aero["CL"]) for aero in aeros]
         Cdps = np.zeros(len(self.airfoils))
@@ -517,27 +479,23 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
             CD_no_stall = aeros[i]["CD"][index_stall[i][0] : index_stall[i][1] + 1]
             spl_cl_cd = InterpolatedModel(CL_no_stall, CD_no_stall, method="bspline")
             spl_aoa_cd = InterpolatedModel(alphas, aeros[i]["CD"])
-            # plt.plot(CL_no_stall, CD_no_stall)
+
             if CL_min <= self.local_cl[i] and self.local_cl[i] <= CL_max:
                 Cdps[i] = spl_cl_cd(self.local_cl[i])
+            elif CL_min > self.local_cl[i]:
+                Cdps[i] = spl_cl_cd(CL_min)
             else:
-                # alpha_stall = alphas[index_stall[i][1]] *  2 *
-                print("local CL", i, self.local_cl[i])
-                print("max CL", CL_max)
-                print("alpha stall", alphas[index_stall[i][1]])
-                print("ideal aoa", self.ideal_aoa[i])
-                alpha_stalled = (self.local_cl[i] - CL_max) / (2 * np.pi) + alphas[
-                    index_stall[i][1]
-                ] * np.pi / 180
-                Cdps[i] = spl_aoa_cd(alphas[index_stall[i][1]])
-                # print("aoa recomputed", alpha_stalled[i] * 180 / (np.pi))
-            # Cdps[i] = spl_aoa_cd(alpha_stalled * 180 / (np.pi))
-            # Cdps[i] = spl_aoa_cd(self.ideal_aoa[i] * 180 / (np.pi))
-            # alpha_stalled = (self.local_cl[i] - CL_max) / (2 * np.pi) + alphas[
-            #    index_stall[i][1]
-            # ] * np.pi / 180
-            # Cdps[i] = spl_aoa_cd(alpha_stalled * 180 / (np.pi))
-            # Cdps[i] = spl_cl_cd(self.local_cl[i])
+                alpha_stalled = (self.local_cl[i] - CL_max) / (
+                    2 * np.pi
+                ) * 180 / np.pi + alphas[index_stall[i][1]]
+                Cdps[i] = spl_aoa_cd(alpha_stalled)
+                if self.verbose:
+                    print(f"WARNING: local stall detected airfoil section {i}")
+                    print("local CL", i, self.local_cl[i])
+                    print("max CL", CL_max)
+                    print("alpha stall", alphas[index_stall[i][1]])
+                    print("alpha local", alpha_stalled)
+
             Dps[i] = (
                 2  # to account for both sides
                 * Cdps[i]
@@ -547,9 +505,7 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
                 * areas[i]
             )
             Fps[i, :] = Dps[i] * self.steady_freestream_direction
-        # print(f"Cl_{self.chordwise_resolution}=", marcl)
-        # print(f"Cd_{self.chordwise_resolution}=", marcd)
-        # plt.show()
+
         Dp = np.sum(Dps)
         moments_profile_geometry = np.cross(
             np.add(vortex_centers[:ny_2, :], -wide(np.array(self.xyz_ref))), Fps
