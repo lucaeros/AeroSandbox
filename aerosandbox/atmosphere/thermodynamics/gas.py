@@ -1,47 +1,49 @@
-import aerosandbox.numpy as np
+from aerosandbox.numpy.typing import Vectorizable
 from aerosandbox.tools.string_formatting import eng_string
-from typing import Union
+from typing import Literal
 
 universal_gas_constant = 8.31432  # J/(mol*K); universal gas constant
 
 
 class PerfectGas:
     """
-    Provides a class for an ideal, calorically perfect gas.
+    Provide a class for an ideal, calorically perfect gas.
 
     Specifically, this gas:
-        * Has PV = nRT (ideal)
-        * Has constant heat capacities C_V, C_P (independent of temperature and pressure).
-        * Is in thermodynamic equilibrium
-        * Is not chemically reacting
-        * Has internal energy and enthalpy purely as functions of temperature
+
+    * Has PV = nRT (ideal)
+    * Has constant heat capacities C_V, C_P (independent of temperature and pressure).
+    * Is in thermodynamic equilibrium
+    * Is not chemically reacting
+    * Has internal energy and enthalpy purely as functions of temperature
     """
 
     def __init__(
         self,
-        pressure: Union[float, np.ndarray] = 101325,
-        temperature: Union[float, np.ndarray] = 273.15 + 15,
+        pressure: Vectorizable = 101325,
+        temperature: Vectorizable = 273.15 + 15,
         specific_heat_constant_pressure: float = 1006,
         specific_heat_constant_volume: float = 717,
         molecular_mass: float = 28.9644e-3,
         effective_collision_diameter: float = 0.365e-9,
     ):
         """
+        Initialize a new PerfectGas.
 
-        Args:
-
-            pressure: Pressure of the gas, in Pascals
-
-            temperature: Temperature of the gas, in Kelvin
-
-            specific_heat_constant_pressure: Specific heat at constant pressure, also known as C_p. In J/kg-K.
-
-            specific_heat_constant_volume: Specific heat at constant volume, also known as C_v. In J/kg-K.
-
-            molecular_mass: Molecular mass of the gas, in kg/mol
-
-            effective_collision_diameter: Effective collision diameter of a molecule, in meters.
-
+        Parameters
+        ----------
+        pressure : Vectorizable
+            Pressure of the gas, in Pascals.
+        temperature : Vectorizable
+            Temperature of the gas, in Kelvin.
+        specific_heat_constant_pressure : float
+            Specific heat at constant pressure, also known as C_p. In J/kg-K.
+        specific_heat_constant_volume : float
+            Specific heat at constant volume, also known as C_v. In J/kg-K.
+        molecular_mass : float
+            Molecular mass of the gas, in kg/mol.
+        effective_collision_diameter : float
+            Effective collision diameter of a molecule, in meters.
         """
         self.pressure = pressure
         self.temperature = temperature
@@ -54,37 +56,62 @@ class PerfectGas:
         def f(val, unit):
             return eng_string(val, unit=unit, format="%.6g")
 
-        return f"Gas (P = {f(self.pressure, 'Pa')}, T = {self.temperature:.6g} K, ρ = {self.density:.6g} kg/m^3, Pv^gamma = {self.pressure * self.specific_volume ** self.ratio_of_specific_heats: .6g})"
+        try:
+            return f"Gas (P = {f(self.pressure, 'Pa')}, T = {self.temperature:.6g} K, ρ = {self.density:.6g} kg/m^3, Pv^gamma = {self.pressure * self.specific_volume**self.ratio_of_specific_heats: .6g})"
+        except (
+            ValueError,
+            TypeError,
+            RuntimeError,
+        ):  # Occurs for array-valued or symbolic (CasADi) gas states
+            return f"Gas (P = {self.pressure} Pa, T = {self.temperature} K)"
 
     @property
     def density(self):
+        """
+        Return the density of the gas, in kg/m^3.
+        """
         return self.pressure / (self.temperature * self.specific_gas_constant)
 
     @property
     def speed_of_sound(self):
+        """
+        Return the speed of sound in the gas, in m/s.
+        """
         return (
             self.ratio_of_specific_heats * self.specific_gas_constant * self.temperature
         ) ** 0.5
 
     @property
     def specific_gas_constant(self):
+        """
+        Return the specific gas constant of the gas, in J/(kg*K).
+        """
         return universal_gas_constant / self.molecular_mass
 
     @property
     def ratio_of_specific_heats(self):
+        """
+        Return the ratio of specific heats (gamma) of the gas, unitless.
+        """
         return self.specific_heat_constant_pressure / self.specific_heat_constant_volume
 
     def specific_enthalpy_change(self, start_temperature, end_temperature):
         """
-        Returns the change in specific enthalpy that would occur from a given temperature change via a thermodynamic
-        process.
+        Return the change in specific enthalpy due to a given temperature change.
 
-        Args:
-            start_temperature: Starting temperature [K]
-            end_temperature: Ending temperature [K]
+        This is the change in specific enthalpy that would occur from a given temperature
+        change via a thermodynamic process.
 
-        Returns: The change in specific enthalpy, in J/kg.
+        Parameters
+        ----------
+        start_temperature
+            Starting temperature [K].
+        end_temperature
+            Ending temperature [K].
 
+        Returns
+        -------
+        The change in specific enthalpy, in J/kg.
         """
         return self.specific_heat_constant_pressure * (
             end_temperature - start_temperature
@@ -92,15 +119,21 @@ class PerfectGas:
 
     def specific_internal_energy_change(self, start_temperature, end_temperature):
         """
-        Returns the change in specific internal energy that would occur from a given temperature change via a
-        thermodynamic process.
+        Return the change in specific internal energy due to a given temperature change.
 
-        Args:
-            start_temperature: Starting temperature [K]
-            end_temperature: Ending temperature [K]
+        This is the change in specific internal energy that would occur from a given
+        temperature change via a thermodynamic process.
 
-        Returns: The change in specific internal energy, in J/kg.
+        Parameters
+        ----------
+        start_temperature
+            Starting temperature [K].
+        end_temperature
+            Ending temperature [K].
 
+        Returns
+        -------
+        The change in specific internal energy, in J/kg.
         """
         return self.specific_heat_constant_volume * (
             end_temperature - start_temperature
@@ -109,17 +142,17 @@ class PerfectGas:
     @property
     def specific_volume(self):
         """
-        Gives the specific volume, often denoted `v`.
+        Return the specific volume, often denoted `v`.
 
-        (Note the lowercase; "V" is often the volume of a specific amount of gas, and this presents a potential point
-        of confusion.)
+        (Note the lowercase; "V" is often the volume of a specific amount of gas, and this
+        presents a potential point of confusion.)
         """
         return 1 / self.density
 
     @property
     def specific_enthalpy(self):
         """
-        Gives the specific enthalpy, often denoted `h`.
+        Return the specific enthalpy, often denoted `h`.
 
         Enthalpy here is in units of J/kg.
         """
@@ -130,7 +163,7 @@ class PerfectGas:
     @property
     def specific_internal_energy(self):
         """
-        Gives the specific internal energy, often denoted `u`.
+        Return the specific internal energy, often denoted `u`.
 
         Internal energy here is in units of J/kg.
         """
@@ -140,51 +173,69 @@ class PerfectGas:
 
     def process(
         self,
-        process: str = "isentropic",
-        new_pressure: float = None,
-        new_temperature: float = None,
-        new_density: float = None,
-        enthalpy_addition_at_constant_pressure: float = None,
-        enthalpy_addition_at_constant_volume: float = None,
-        polytropic_n: float = None,
+        process: Literal[
+            "isobaric",
+            "isochoric",
+            "isothermal",
+            "isentropic",
+            "polytropic",
+            "isenthalpic",
+        ] = "isentropic",
+        new_pressure: float | None = None,
+        new_temperature: float | None = None,
+        new_density: float | None = None,
+        enthalpy_addition_at_constant_pressure: float | None = None,
+        enthalpy_addition_at_constant_volume: float | None = None,
+        polytropic_n: float | None = None,
         inplace=False,
     ) -> "PerfectGas":
         """
-        Puts this gas under a thermodynamic process.
+        Put this gas under a thermodynamic process.
 
         Equations here: https://en.wikipedia.org/wiki/Ideal_gas_law
 
-        Args:
+        You must specify exactly one of the following arguments: `new_pressure`,
+        `new_temperature`, `new_density`, `enthalpy_addition_at_constant_pressure`,
+        `enthalpy_addition_at_constant_volume`.
 
-            process: Type of process. One of:
+        Parameters
+        ----------
+        process : {"isobaric", "isochoric", "isothermal", "isentropic", "polytropic", "isenthalpic"}
+            Type of process. One of:
 
-                * "isobaric"
-                * "isochoric"
-                * "isothermal"
-                * "isentropic"
-                * "polytropic"
+            * "isobaric"
+            * "isochoric"
+            * "isothermal"
+            * "isentropic"
+            * "polytropic"
+            * "isenthalpic" (accepted, but not yet implemented; raises NotImplementedError)
 
-                The `process` must be specified.
+            The `process` must be specified.
+        new_pressure : float | None
+            The new pressure after the process [Pa].
+        new_temperature : float | None
+            The new temperature after the process [K].
+        new_density : float | None
+            The new density after the process [kg/m^3].
+        enthalpy_addition_at_constant_pressure : float | None
+            Enthalpy addition at constant pressure [J/kg].
+        enthalpy_addition_at_constant_volume : float | None
+            Enthalpy addition at constant volume [J/kg].
+        polytropic_n : float | None
+            If you specified the process type to be "polytropic", you must provide the
+            polytropic index `n` to be used here. (Reminder: PV^n = constant)
+        inplace : bool
+            Specifies whether to return the result in-place or to allocate a new PerfectGas
+            object in memory for the result.
 
-            You must specifiy exactly one of the following arguments:
-                * `new_pressure`: the new pressure after the process [Pa].
-                * `new_temperature`: the new temperature after the process [K]
-                * `new_density`: the new density after the process [kg/m^3]
-                * `enthalpy_addition_at_constant_pressure`: [J/kg]
-                * `enthalpy_addition_at_constant_volume`: [J/kg]
+        Returns
+        -------
+        PerfectGas
+            If `inplace` is False (default), returns a new PerfectGas object that represents
+            the gas after the change.
 
-            polytropic_n: If you specified the process type to be "polytropic", you must provide the polytropic index
-            `n` to be used here. (Reminder: PV^n = constant)
-
-            inplace: Specifies whether to return the result in-place or to allocate a new PerfectGas object in memory
-            for the result.
-
-        Returns:
-
-            If `inplace` is False (default), returns a new PerfectGas object that represents the gas after the change.
-
-            If `inplace` is True, nothing is returned.
-
+            If `inplace` is True, this gas object is modified in-place, and it (`self`) is
+            returned.
         """
 
         pressure_specified = new_pressure is not None
@@ -230,6 +281,11 @@ class PerfectGas:
                 / self.specific_heat_constant_volume
             )
 
+        if enthalpy_at_pressure_specified or enthalpy_at_volume_specified:
+            ### An enthalpy addition to a calorically perfect gas is equivalent to
+            ### specifying the new temperature, so treat it as such from here on.
+            temperature_specified = True
+
         if pressure_specified:
             P_ratio = new_pressure / self.pressure
         elif temperature_specified:
@@ -238,7 +294,6 @@ class PerfectGas:
             V_ratio = 1 / (new_density / self.density)
 
         if process == "isobaric":
-
             new_pressure = self.pressure
 
             if pressure_specified:
@@ -253,7 +308,6 @@ class PerfectGas:
                 pass
 
         elif process == "isochoric":
-
             if pressure_specified:
                 new_temperature = self.temperature * P_ratio
 
@@ -266,7 +320,6 @@ class PerfectGas:
                 new_pressure = self.pressure * T_ratio
 
         elif process == "isothermal":
-
             new_temperature = self.temperature
 
             if pressure_specified:
@@ -281,7 +334,6 @@ class PerfectGas:
                 )
 
         elif process == "isentropic":
-
             gam = self.ratio_of_specific_heats
 
             if pressure_specified:
@@ -295,7 +347,6 @@ class PerfectGas:
                 new_pressure = self.pressure * T_ratio ** (gam / (gam - 1))
 
         elif process == "polytropic":
-
             if polytropic_n is None:
                 raise ValueError(
                     "If the process is polytropic, then the polytropic index `n` must be specified."
@@ -314,14 +365,17 @@ class PerfectGas:
                 new_pressure = self.pressure * T_ratio ** (n / (n - 1))
 
         elif process == "isenthalpic":
-            raise NotImplementedError()
-
+            raise NotImplementedError("Isenthalpic process is not yet implemented.")
         else:
-            raise ValueError("Bad value of `process`!")
+            raise ValueError(
+                f"{process=!r} is not a valid option. "
+                f"Valid options are: 'isobaric', 'isochoric', 'isothermal', 'isentropic', 'polytropic', 'isenthalpic'."
+            )
 
         if inplace:
             self.pressure = new_pressure
             self.temperature = new_temperature
+            return self
 
         else:
             return PerfectGas(
@@ -335,7 +389,6 @@ class PerfectGas:
 
 
 if __name__ == "__main__":
-
     ### Carnot
     g = []
 

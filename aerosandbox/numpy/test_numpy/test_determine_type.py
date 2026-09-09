@@ -1,4 +1,4 @@
-from aerosandbox.numpy.determine_type import *
+from aerosandbox.numpy.determine_type import is_casadi_type
 import pytest
 import numpy as np
 import casadi as cas
@@ -33,9 +33,7 @@ def test_casadi_list():
     assert not (
         is_casadi_type([cas.MX(np.ones(5)), cas.MX(np.ones(5))], recursive=False)
     )
-    assert (
-        is_casadi_type([cas.MX(np.ones(5)), cas.MX(np.ones(5))], recursive=True)
-    )
+    assert is_casadi_type([cas.MX(np.ones(5)), cas.MX(np.ones(5))], recursive=True)
 
 
 def test_mixed_list():

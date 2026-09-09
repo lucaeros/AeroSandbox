@@ -1,4 +1,7 @@
-from aerosandbox.tools.inspect_tools import *
+from aerosandbox.tools.inspect_tools import (
+    get_function_argument_names_from_source_code,
+    codegen,
+)
 import pytest
 import inspect
 
@@ -19,6 +22,12 @@ def test_function_argument_names_from_source_code():
         "f(a(b,c), d)": ["a(b,c)", "d"],
         "f({a:b}, c)": ["{a:b}", "c"],
         "f(a[b], c)": ["a[b]", "c"],
+        "f(a[1:2], b)": ["a[1:2]", "b"],
+        "f(a[i, j], b)": ["a[i, j]", "b"],
+        "f(y[0:5], x)": ["y[0:5]", "x"],
+        "f(lambda t: t**2, b)": ["lambda t: t**2", "b"],
+        "f(key=lambda t: t[0], b=2)": ["key=lambda t: t[0]", "b=2"],
+        "f(a: dict[str, int], b)": ["a", "b"],
         "f({a:b, c:d}, e)": ["{a:b, c:d}", "e"],
         "f({a:b,\nc:d}, e)": ["{a:b,c:d}", "e"],
         "f(dict(a=b,c=d), e)": ["dict(a=b,c=d)", "e"],
@@ -31,7 +40,6 @@ def test_function_argument_names_from_source_code():
     }
 
     for input, expected_output in tests.items():
-
         ### If you're expecting an error, make sure it gets raised
         if inspect.isclass(expected_output) and issubclass(expected_output, Exception):
             with pytest.raises(expected_output):
@@ -58,11 +66,11 @@ def test_codegen_builtins():
         dict(cat=1, dog=2),
         [1, 2, [3, 4, [5, 6]]],
     ]:
-
         code, imports = codegen(x)
+        namespace: dict = {}
         for import_str in imports:
-            exec(import_str)
-        assert eval(code) == x
+            exec(import_str, namespace)
+        assert eval(code, namespace) == x
 
 
 def test_codegen_numpy():
@@ -73,11 +81,11 @@ def test_codegen_numpy():
         _np.arange(10),
         _np.arange(12).reshape(3, 4),
     ]:
-
         code, imports = codegen(x)
+        namespace: dict = {}
         for import_str in imports:
-            exec(import_str)
-        assert (eval(code) == x).all()
+            exec(import_str, namespace)
+        assert (eval(code, namespace) == x).all()
 
 
 if __name__ == "__main__":

@@ -18,13 +18,19 @@ def generate_airplane(
     include_main=True,
 ) -> str:
     """
-    Generates a VSPScript file for an Airplane object.
+    Generate a VSPScript file for an Airplane object.
 
-    Args:
-        airplane: The Airplane object to generate a VSPScript file for.
+    Parameters
+    ----------
+    airplane : Airplane
+        The Airplane object to generate a VSPScript file for.
+    include_main
+        If True, wraps the script in a main() function via `_utilities.wrap_script()`.
 
-    Returns: A VSPScript file as a string.
-
+    Returns
+    -------
+    str
+        A VSPScript file as a string.
     """
     script = ""
 
@@ -56,7 +62,6 @@ def generate_airplane(
 
 
 if __name__ == "__main__":
-
     from aerosandbox.geometry.wing import Wing, WingXSec
     from aerosandbox.geometry.airfoil.airfoil import Airfoil
 

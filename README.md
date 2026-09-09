@@ -114,7 +114,7 @@ Use AeroSandbox as a pure aerodynamics toolkit:
 	</tr>
 </table>
 
-Among many other discplines:
+Among many other disciplines:
 
 <table>
 	<tr>
@@ -181,13 +181,13 @@ Or, throw all the airplane-design-specific code out entirely, and use AeroSandbo
 	<tr>
 		<td width="50%" valign="top">
 			<p align="center">
-				<a href="https://github.com/peterdsharpe/AeroSandbox/blob/develop/tutorial/01%20-%20Optimization%20and%20Math/01%20-%202D%20Rosenbrock.ipynb">Optimize the 2D Rosenbrock function</a>
+				<a href="https://github.com/peterdsharpe/AeroSandbox/blob/master/tutorial/01%20-%20Optimization%20and%20Math/01%20-%202D%20Rosenbrock.ipynb">Optimize the 2D Rosenbrock function</a>
 			</p>
 			<img src="./media/images/optimization.png" alt="Optimization">
 		</td>
 		<td width="50%" valign="top">
 			<p align="center">
-				<a href="https://github.com/peterdsharpe/AeroSandbox/tree/develop/tutorial/03%20-%20Trajectory%20Optimization%20and%20Optimal%20Control/01%20-%20Solving%20ODEs%20with%20AeroSandbox">Specify the Falkner Skan ODE (nonlinear, 3rd-order BVP) and let AeroSandbox automatically take care of the discretization, solution, and even inverse solving.</a>
+				<a href="https://github.com/peterdsharpe/AeroSandbox/tree/master/tutorial/03%20-%20Trajectory%20Optimization%20and%20Optimal%20Control/01%20-%20Solving%20ODEs%20with%20AeroSandbox">Specify the Falkner Skan ODE (nonlinear, 3rd-order BVP) and let AeroSandbox automatically take care of the discretization, solution, and even inverse solving.</a>
 			</p>
 			<img src="./media/images/falkner-skan.png" alt="FS ODE">
 		</td>
@@ -204,7 +204,7 @@ In short:
 
 * `pip install aerosandbox[full]` for a complete install.
 
-* `pip install aerosandbox` for a lightweight (headless) installation with minimal dependencies. All optimization, numerics, and physics models are included, but optional visualization dependencies are skipped.
+* `pip install aerosandbox` for a lighter-weight installation. All optimization, numerics, and physics models are included, along with 2D plotting via matplotlib; optional dependencies for 3D visualization, CAD export, and geometry manipulation (e.g., plotly, pyvista, trimesh, cadquery) are skipped.
 
 For more installation details (e.g., if you're new to Python), [see here](./INSTALLATION.md).
 
@@ -227,7 +227,7 @@ You can print documentation and examples for any AeroSandbox object by using the
 One final point to note: **all inputs and outputs to AeroSandbox are expressed in base SI units, or derived units thereof** (e.g., m, kg, sec, N, m/s, J, Pa). Since this unit system is [coherent](https://en.wikipedia.org/wiki/Coherence_(units_of_measurement)), an [enormous number of quantities](https://en.wikipedia.org/wiki/SI_derived_unit) can be converted without any scaling factors. This improves readability and reduces the likelihood of errors.
 
 There are only two exceptions to this SI-everywhere rule:
-1. If alternate units are noted in a variable name's suffix. For example:
+1. If alternate units are used, this is noted in the variable name's suffix. For example:
 
    * `battery_capacity` → Joules
    * `battery_capacity_watt_hours` → Watt-hours
@@ -254,7 +254,7 @@ Contact information can be found next to my name near the top of this README.
 ### Donating
 
 If you like this software, please consider donating to support development [via PayPal](https://paypal.me/peterdsharpe)
-or [GitHub Sponsors](https://github.com/sponsors/peterdsharpe/)! Proceeds will go towards more coffee for the grad students.
+or [GitHub Sponsors](https://github.com/sponsors/peterdsharpe/)!
 
 ### Bugs
 
@@ -309,3 +309,4 @@ If you use AeroSandbox, public attribution is appreciated. In particular, it's e
 ## Supported by
 
 <a href="https://jb.gg/OpenSourceSupport"><img src="https://resources.jetbrains.com/storage/products/company/brand/logos/jetbrains.svg" alt="JetBrains logo."></a>
+

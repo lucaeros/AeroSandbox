@@ -1,6 +1,8 @@
-from .vortex_lattice_method import VortexLatticeMethod
-from .viscous_vortex_lattice_method import ViscousVortexLatticeMethod
-from .lifting_line import LiftingLine
-from .nonlinear_lifting_line import NonlinearLiftingLine
-from .aero_buildup import AeroBuildup
-from .avl import AVL
+from aerosandbox.aerodynamics.aero_3D.vortex_lattice_method import VortexLatticeMethod
+from aerosandbox.aerodynamics.aero_3D.viscous_vortex_lattice_method import (
+    ViscousVortexLatticeMethod,
+)
+from aerosandbox.aerodynamics.aero_3D.lifting_line import LiftingLine
+from aerosandbox.aerodynamics.aero_3D.nonlinear_lifting_line import NonlinearLiftingLine
+from aerosandbox.aerodynamics.aero_3D.aero_buildup import AeroBuildup
+from aerosandbox.aerodynamics.aero_3D.avl import AVL

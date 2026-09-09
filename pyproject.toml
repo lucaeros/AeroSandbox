@@ -1,0 +1,121 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "AeroSandbox"
+version = "4.2.10"
+description = "AeroSandbox is a Python package that helps you design and optimize aircraft and other engineered systems."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "Peter Sharpe", email = "pds@mit.edu" }
+]
+keywords = [
+    "aerodynamics",
+    "airplane",
+    "cfd",
+    "mdo",
+    "mdao",
+    "aircraft",
+    "design",
+    "aerospace",
+    "optimization",
+    "automatic differentiation",
+    "structures",
+    "propulsion",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Physics",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+]
+
+dependencies = [
+    "casadi>=3.7.2",
+    "dill>=0.4.0",
+    "matplotlib>=3.10.7",
+    # NeuralFoil minor releases can change network weights and API surface
+    # (e.g., AeroSandbox 4.2.7 needed explicit compatibility work for
+    # NeuralFoil 0.3.0 - see CHANGELOG.md), so cap below the next minor
+    # until compatibility is verified.
+    "neuralfoil>=0.3.0,<0.4.0",
+    "numpy>=2.2.6",
+    "pandas>=2.3.3",
+    "scipy>=1.15.3",
+    "seaborn>=0.13.2",
+    "sortedcontainers>=2.4.0",
+    "tqdm>=4.67.1",
+]
+
+[project.optional-dependencies]
+full = [
+    "cadquery>=2.6.1",
+    "plotly>=6.4.0",
+    "pyvista>=0.46.4",
+    "shapely>=2.1.2",
+    "sympy>=1.14.0",
+    "trimesh>=4.9.0",
+]
+test = [
+    "nbval>=0.11.0",
+    "openpyxl>=3.1.5",
+    "pytest>=8.4.2",
+    "pytest-cov>=7.0.0",
+    "shapely>=2.1.2",
+]
+docs = [
+    "furo>=2025.9.25",
+    "sphinx>=8.1.3",
+    "sphinx-autoapi>=3.6.1",
+]
+
+[project.urls]
+Homepage = "https://peterdsharpe.github.io/AeroSandbox/"
+Source = "https://github.com/peterdsharpe/AeroSandbox"
+"Bug Reports" = "https://github.com/peterdsharpe/AeroSandbox/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["aerosandbox"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/aerosandbox",
+    "/pyproject.toml",
+    "/README.md",
+    "/LICENSE.txt",
+]
+
+[dependency-groups]
+dev = [
+    "cadquery>=2.6.1",
+    "ipykernel>=7.1.0",
+    "ipython>=8.37.0",
+    "openpyxl>=3.1.5",
+    "plotly>=6.4.0",
+    "pytest>=8.4.2",
+    "pytest-cov>=7.0.0",
+    "pyvista>=0.46.4",
+    "shapely>=2.1.2",
+    "sympy>=1.14.0",
+    "trimesh>=4.9.0",
+]
+
+[tool.ruff]
+
+[tool.ruff.lint.per-file-ignores]
+# Notebooks may have imports not at top
+"*.ipynb" = ["E402"]
+# Allow wildcard imports only in numpy wrapper (intentional numpy-like API)
+"aerosandbox/numpy/__init__.py" = ["F403", "F405"]
+"aerosandbox/numpy/linalg.py" = ["F403", "F405"]
+# Allow unused imports in __init__.py files (re-exports for public API)
+"**/__init__.py" = ["F401"]
+# Allow imports not at top in studies/tutorials/ignore (may need setup before imports)
+"studies/**/*.py" = ["E402"]
+"tutorial/**/*.py" = ["E402"]
+"aerosandbox/**/ignore/**/*.py" = ["E402"]
+"aerosandbox/**/*_derivations/**/*.py" = ["E402"]

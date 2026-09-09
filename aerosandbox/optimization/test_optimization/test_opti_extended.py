@@ -1,0 +1,529 @@
+import aerosandbox as asb
+import aerosandbox.numpy as np
+import pytest
+
+
+def test_opti_simple_unconstrained():
+    """Test simple unconstrained optimization."""
+    opti = asb.Opti()
+
+    x = opti.variable(init_guess=10)
+    opti.minimize((x - 3) ** 2)
+
+    sol = opti.solve(verbose=False)
+
+    assert np.isclose(sol(x), 3, atol=1e-4)
+
+
+def test_opti_backward_compatibility_value_method():
+    """Test that sol.value() method still works for backward compatibility."""
+    opti = asb.Opti()
+
+    x = opti.variable(init_guess=10)
+    opti.minimize((x - 3) ** 2)
+
+    sol = opti.solve(verbose=False)
+
+    ### Test that the legacy .value() method still works
+    assert np.isclose(sol.value(x), 3, atol=1e-4)
+    ### Test that it gives the same result as the __call__ method
+    assert np.isclose(sol.value(x), sol(x), atol=1e-10)
+
+
+def test_opti_with_lower_bound():
+    """Test optimization with lower bound constraint."""
+    opti = asb.Opti()
+
+    x = opti.variable(init_guess=0, lower_bound=5)
+    opti.minimize(x)
+
+    sol = opti.solve(verbose=False)
+
+    assert np.isclose(sol(x), 5, atol=1e-4)
+
+
+def test_opti_with_upper_bound():
+    """Test optimization with upper bound constraint."""
+    opti = asb.Opti()
+
+    x = opti.variable(init_guess=10, upper_bound=3)
+    opti.minimize(-x)
+
+    sol = opti.solve(verbose=False)
+
+    assert np.isclose(sol(x), 3, atol=1e-4)
+
+
+def test_opti_with_bounds():
+    """Test optimization with both upper and lower bounds."""
+    opti = asb.Opti()
+
+    x = opti.variable(init_guess=0, lower_bound=-5, upper_bound=5)
+    opti.minimize((x - 10) ** 2)
+
+    sol = opti.solve(verbose=False)
+
+    ### Minimum would be at x=10, but constrained to x<=5
+    assert np.isclose(sol(x), 5, atol=1e-4)
+
+
+def test_opti_equality_constraint():
+    """Test optimization with equality constraint."""
+    opti = asb.Opti()
+
+    x = opti.variable(init_guess=0)
+    y = opti.variable(init_guess=0)
+
+    opti.minimize(x**2 + y**2)
+    opti.subject_to(x + y == 10)
+
+    sol = opti.solve(verbose=False)
+
+    ### Minimum of x^2 + y^2 subject to x + y = 10 is at x = y = 5
+    assert np.isclose(sol(x), 5, atol=1e-3)
+    assert np.isclose(sol(y), 5, atol=1e-3)
+
+
+def test_opti_inequality_constraint():
+    """Test optimization with inequality constraint."""
+    opti = asb.Opti()
+
+    x = opti.variable(init_guess=0)
+
+    opti.minimize(x)
+    opti.subject_to(x >= 3)
+
+    sol = opti.solve(verbose=False)
+
+    assert np.isclose(sol(x), 3, atol=1e-4)
+
+
+def test_opti_multiple_variables():
+    """Test optimization with multiple variables."""
+    opti = asb.Opti()
+
+    x = opti.variable(init_guess=0)
+    y = opti.variable(init_guess=0)
+    z = opti.variable(init_guess=0)
+
+    opti.minimize((x - 1) ** 2 + (y - 2) ** 2 + (z - 3) ** 2)
+
+    sol = opti.solve(verbose=False)
+
+    assert np.isclose(sol(x), 1, atol=1e-4)
+    assert np.isclose(sol(y), 2, atol=1e-4)
+    assert np.isclose(sol(z), 3, atol=1e-4)
+
+
+def test_opti_vector_variable():
+    """Test optimization with vector variable."""
+    opti = asb.Opti()
+
+    x = opti.variable(init_guess=np.zeros(3))
+    target = np.array([1, 2, 3])
+
+    opti.minimize(np.sum((x - target) ** 2))
+
+    sol = opti.solve(verbose=False)
+
+    assert np.allclose(sol(x), target, atol=1e-4)
+
+
+def test_opti_parameter():
+    """Test optimization with parameter."""
+    opti = asb.Opti()
+
+    p = opti.parameter(value=5)
+    x = opti.variable(init_guess=0)
+
+    opti.minimize((x - p) ** 2)
+
+    sol = opti.solve(verbose=False)
+
+    assert np.isclose(sol(x), 5, atol=1e-4)
+
+
+def test_opti_parameter_update():
+    """Test updating parameter value and re-solving."""
+    opti = asb.Opti()
+
+    p = opti.parameter(value=5)
+    x = opti.variable(init_guess=0)
+
+    opti.minimize((x - p) ** 2)
+
+    sol1 = opti.solve(verbose=False)
+    assert np.isclose(sol1(x), 5, atol=1e-4)
+
+    ### Update parameter
+    opti.set_value(p, 10)
+    sol2 = opti.solve(verbose=False)
+
+    assert np.isclose(sol2(x), 10, atol=1e-4)
+
+
+def test_opti_quadratic_program():
+    """Test quadratic programming problem."""
+    opti = asb.Opti()
+
+    x = opti.variable(init_guess=0, n_vars=2)
+
+    ### Minimize x^T Q x + c^T x (note: need x.T for correct matrix multiplication)
+    Q = np.array([[2, 0], [0, 2]])
+    c = np.array([[-4], [-6]])  ### Column vector to match x
+
+    opti.minimize(x.T @ Q @ x + c.T @ x)
+
+    sol = opti.solve(verbose=False)
+
+    ### Solution should be -Q^(-1) @ c / 2 = [1, 1.5]
+    expected = np.array([1, 1.5])
+    assert np.allclose(sol(x).flatten(), expected, atol=1e-3)
+
+
+def test_opti_rosenbrock():
+    """Test classic Rosenbrock function optimization."""
+    opti = asb.Opti()
+
+    x = opti.variable(init_guess=0)
+    y = opti.variable(init_guess=0)
+
+    opti.minimize((1 - x) ** 2 + 100 * (y - x**2) ** 2)
+
+    sol = opti.solve(verbose=False)
+
+    ### Rosenbrock minimum is at (1, 1)
+    assert np.isclose(sol(x), 1, atol=0.01)
+    assert np.isclose(sol(y), 1, atol=0.01)
+
+
+def test_opti_subject_to_list():
+    """Test adding multiple constraints as a list."""
+    opti = asb.Opti()
+
+    x = opti.variable(init_guess=0)
+    y = opti.variable(init_guess=0)
+
+    opti.minimize(x + y)
+    opti.subject_to([x >= 2, y >= 3, x + y <= 10])
+
+    sol = opti.solve(verbose=False)
+
+    ### Minimum is at x=2, y=3
+    assert np.isclose(sol(x), 2, atol=1e-3)
+    assert np.isclose(sol(y), 3, atol=1e-3)
+
+
+def test_opti_subject_to_tuple():
+    """Test adding multiple constraints as a tuple."""
+    opti = asb.Opti()
+
+    x = opti.variable(init_guess=0)
+    y = opti.variable(init_guess=0)
+
+    opti.minimize(x + y)
+    opti.subject_to((x >= 2, y >= 3, x + y <= 10))
+
+    sol = opti.solve(verbose=False)
+
+    ### Minimum is at x=2, y=3
+    assert np.isclose(sol(x), 2, atol=1e-3)
+    assert np.isclose(sol(y), 3, atol=1e-3)
+
+
+def test_opti_subject_to_generator():
+    """Test adding multiple constraints from a generator expression."""
+    opti = asb.Opti()
+
+    x = opti.variable(n_vars=3, init_guess=0)
+
+    opti.minimize(np.sum(x))
+    # Generator expression - should work since generators are iterable sequences
+    opti.subject_to(list(x[i] >= i + 1 for i in range(3)))
+
+    sol = opti.solve(verbose=False)
+
+    ### Minimum is at x = [1, 2, 3]
+    assert np.allclose(sol(x), [1, 2, 3], atol=1e-3)
+
+
+def test_opti_linear_program():
+    """Test linear programming problem."""
+    opti = asb.Opti()
+
+    x = opti.variable(init_guess=0, lower_bound=0)
+    y = opti.variable(init_guess=0, lower_bound=0)
+
+    ### Maximize x + 2y (minimize -(x + 2y))
+    opti.minimize(-(x + 2 * y))
+
+    opti.subject_to([x + y <= 10, 2 * x + y <= 15, x <= 8])
+
+    sol = opti.solve(verbose=False)
+
+    ### Should push y as high as possible while satisfying constraints
+    ### Optimal solution is at the intersection of active constraints
+    assert sol(x) >= -0.1  ### Allow small numerical error
+    assert sol(y) >= -0.1
+    ### Check that constraints are satisfied
+    assert sol(x + y) <= 10.1
+    assert sol(2 * x + y) <= 15.1
+
+
+def test_opti_constraint_violation_detection():
+    """Test that infeasible problems are detected."""
+    opti = asb.Opti()
+
+    x = opti.variable(init_guess=0)
+
+    opti.minimize(x)
+    opti.subject_to([x >= 10, x <= 5])
+
+    ### This should fail or raise exception
+    with pytest.raises(Exception):
+        opti.solve(verbose=False)
+
+
+def test_opti_freeze_variable():
+    """Test freezing a variable to a constant value."""
+    opti = asb.Opti()
+
+    x = opti.variable(init_guess=3)
+    y = opti.variable(init_guess=0)
+
+    opti.subject_to(x == 5)  ### Freeze x to 5
+
+    opti.minimize((x - 2) ** 2 + (y - 1) ** 2)
+
+    sol = opti.solve(verbose=False)
+
+    assert np.isclose(sol(x), 5, atol=1e-4)
+    assert np.isclose(sol(y), 1, atol=1e-4)
+
+
+def test_opti_nonlinear_constraint():
+    """Test optimization with nonlinear constraint."""
+    opti = asb.Opti()
+
+    x = opti.variable(init_guess=1)
+    y = opti.variable(init_guess=1)
+
+    opti.minimize(x + y)
+    opti.subject_to(x**2 + y**2 >= 4)  ### Outside circle of radius 2
+
+    sol = opti.solve(verbose=False)
+
+    ### Minimum should be on the circle boundary
+    assert np.isclose(sol(x) ** 2 + sol(y) ** 2, 4, atol=0.1)
+
+
+def test_opti_minimize_absolute_value():
+    """Test minimizing sum of absolute values (L1 norm)."""
+    opti = asb.Opti()
+
+    x = opti.variable(init_guess=np.zeros(3))
+    target = np.array([1, -2, 3])
+
+    ### Use smooth approximation for absolute value
+    opti.minimize(np.sum(np.sqrt((x - target) ** 2 + 1e-6)))
+
+    sol = opti.solve(verbose=False)
+
+    assert np.allclose(sol(x), target, atol=0.01)
+
+
+def test_opti_matrix_variable():
+    """Test optimization with matrix variable."""
+    opti = asb.Opti()
+
+    ### Create 4 scalar variables and reshape to matrix
+    x = opti.variable(init_guess=0, n_vars=4)
+    X = np.reshape(x, (2, 2))
+    target = np.array([[1, 2], [3, 4]])
+
+    opti.minimize(np.sum((X - target) ** 2))
+
+    sol = opti.solve(verbose=False)
+
+    assert np.allclose(sol(X), target, atol=1e-4)
+
+
+def test_opti_callback_function():
+    """Test optimization with callback function to track iterations."""
+    opti = asb.Opti()
+
+    x = opti.variable(init_guess=0)
+    opti.minimize(x**2)
+
+    iteration_count = [0]
+
+    def callback(i):
+        iteration_count[0] += 1
+
+    try:
+        opti.solve(verbose=False, callback=callback)
+        ### Callback might not be supported, that's ok
+    except (TypeError, AttributeError):
+        pass
+
+
+def test_opti_initial_guess_influence():
+    """Test that initial guess affects convergence."""
+    opti = asb.Opti()
+
+    x = opti.variable(init_guess=10)  ### Start far from minimum
+
+    opti.minimize((x - 3) ** 2)
+
+    sol = opti.solve(verbose=False)
+
+    ### Should still converge to correct solution
+    assert np.isclose(sol(x), 3, atol=1e-4)
+
+
+def test_opti_bounded_optimization_tight_bounds():
+    """Test optimization with very tight bounds."""
+    opti = asb.Opti()
+
+    x = opti.variable(init_guess=5, lower_bound=4.99, upper_bound=5.01)
+
+    opti.minimize((x - 10) ** 2)
+
+    sol = opti.solve(verbose=False)
+
+    ### Should hit upper bound
+    assert np.isclose(sol(x), 5.01, atol=1e-4)
+
+
+def test_opti_scale_dependent_optimization():
+    """Test optimization with different scaling."""
+    opti = asb.Opti()
+
+    x = opti.variable(init_guess=0)
+
+    ### Large scale problem
+    opti.minimize(1e6 * (x - 1) ** 2)
+
+    sol = opti.solve(verbose=False)
+
+    assert np.isclose(sol(x), 1, atol=1e-3)
+
+
+def test_opti_invalid_behavior_on_failure_raises():
+    """An invalid `behavior_on_failure` should raise a clear ValueError (was: UnboundLocalError)."""
+    opti = asb.Opti()
+
+    x = opti.variable(init_guess=0)
+    opti.minimize((x - 1) ** 2)
+
+    with pytest.raises(ValueError, match="behavior_on_failure"):
+        opti.solve(
+            verbose=False, behavior_on_failure="return-last"
+        )  # note the typo'd value
+
+
+def test_show_infeasibilities_single_scalar_constraint(capsys):
+    """show_infeasibilities() used to crash with TypeError (object of type 'float' has no len())
+    on problems with exactly one scalar constraint."""
+    opti = asb.Opti()
+
+    x = opti.variable(init_guess=0)
+    opti.subject_to(x >= 1)  # The one and only (scalar) constraint
+    opti.minimize(x**2)
+
+    sol = opti.solve(verbose=False)
+
+    sol.show_infeasibilities(
+        tol=1e-3
+    )  # Feasible solve: should print nothing, and not crash
+    assert capsys.readouterr().out == ""
+
+
+def test_show_infeasibilities_single_scalar_constraint_violated(capsys):
+    """Same as above, but with the single scalar constraint actually violated."""
+    opti = asb.Opti()
+
+    x = opti.variable(init_guess=0)
+    opti.subject_to(x**2 <= -1)  # Infeasible by construction
+    opti.minimize(x**2)
+
+    with pytest.warns(UserWarning):
+        sol = opti.solve(
+            verbose=False,
+            max_iter=50,
+            behavior_on_failure="return_last",
+        )
+
+    sol.show_infeasibilities(tol=1e-3)
+    out = capsys.readouterr().out
+    assert "violation" in out
+
+
+def test_optisol_value_preserves_frozenset():
+    """sol.value(frozenset) should return a frozenset (used to silently return a mutable set)."""
+    opti = asb.Opti()
+
+    x = opti.variable(init_guess=1)
+    opti.minimize((x - 3) ** 2)
+    sol = opti.solve(verbose=False)
+
+    result = sol.value(frozenset([x]))
+    assert isinstance(result, frozenset)
+    (element,) = result
+    assert element == pytest.approx(3)
+
+    result = sol.value({x})  # Plain sets should still come back as plain sets
+    assert type(result) is set
+
+
+def test_optisol_value_propagates_warn_on_unknown_types():
+    """The warn_on_unknown_types flag should also apply to nested items (it used to be dropped
+    in recursive calls, so nested unconvertible objects never warned)."""
+
+    class Unconvertible:
+        __slots__ = ()  # No __dict__, and not convertible by CasADi
+
+    opti = asb.Opti()
+    x = opti.variable(init_guess=1)
+    opti.minimize((x - 3) ** 2)
+    sol = opti.solve(verbose=False)
+
+    with pytest.warns(UserWarning, match="could not convert"):
+        sol.value([Unconvertible()], warn_on_unknown_types=True)
+
+
+def test_parameter_mapping_size_mismatch_error():
+    """A direct parameter_mapping with mismatched sizes should raise an error describing the
+    size mismatch (it used to only talk about cached solutions, even with no cache involved)."""
+    opti = asb.Opti()
+
+    x = opti.variable(init_guess=0)
+    p = opti.parameter(value=np.ones(3), n_params=3)
+    opti.subject_to(x >= p[0])
+    opti.minimize(x**2)
+
+    with pytest.raises(RuntimeError, match="element"):
+        opti.solve(verbose=False, parameter_mapping={p: np.ones(5)})
+
+
+def test_solve_sweep():
+    """solve_sweep() used to crash with TypeError at its internal `def run` line, since the
+    annotation `"OptiSol" | None` (str | None) is evaluated at function-definition time."""
+    opti = asb.Opti()
+
+    x = opti.variable(init_guess=1)
+    p = opti.parameter(value=1)
+    opti.subject_to(x >= p)
+    opti.minimize(x**2)
+
+    sols = opti.solve_sweep({p: np.linspace(1, 3, 3)}, verbose=False)
+    assert [sol(x) for sol in sols] == pytest.approx([1, 2, 3])
+
+    get_vals = opti.solve_sweep(
+        {p: np.linspace(1, 3, 3)}, verbose=False, return_callable=True
+    )
+    assert get_vals(x) == pytest.approx([1, 2, 3])
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

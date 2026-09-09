@@ -1,9 +1,8 @@
 import aerosandbox as asb
 import aerosandbox.numpy as np
-from typing import List
 
 
-def get_airfoil_database() -> List[asb.Airfoil]:
+def get_airfoil_database() -> list[asb.Airfoil]:
     airfoil_database_root = asb._asb_root / "geometry" / "airfoil" / "airfoil_database"
 
     afs = [
@@ -108,14 +107,11 @@ def check_validity(af: asb.Airfoil) -> None:
             )
 
     ### See if Shapely has any complaints
-    try:
-        import shapely
+    import importlib.util
 
+    if importlib.util.find_spec("shapely") is not None:
         if not af.as_shapely_polygon().is_valid:
             raise ValueError(f"Airfoil {af.name} is not a valid Shapely polygon!")
-
-    except ImportError:
-        pass
 
 
 def test_airfoil_database_validity():
@@ -133,8 +129,7 @@ def test_airfoil_database_validity():
 
     if len(failed_airfoils_and_errors) > 0:
         raise ValueError(
-            "The following airfoils failed the validity test:\n"
-            "\n".join(
+            "The following airfoils failed the validity test:\n\n".join(
                 f"{af_name}: {error}"
                 for af_name, error in failed_airfoils_and_errors.items()
             )
@@ -151,7 +146,6 @@ def debug_draw(af: asb.Airfoil):
 
 
 if __name__ == "__main__":
-
     afs = get_airfoil_database()
     for af in afs:
         try:

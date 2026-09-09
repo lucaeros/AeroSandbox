@@ -1,5 +1,6 @@
 import inspect
-from typing import List, Union, Tuple, Optional, Set, Any
+import re
+from typing import Any
 from pathlib import Path
 from aerosandbox.tools.string_formatting import has_balanced_parentheses
 import numpy as np
@@ -7,51 +8,58 @@ import numpy as np
 
 def get_caller_source_location(
     stacklevel: int = 1,
-    truncate_stacklevel: bool=False,
-) -> (Path, int, str):
-    """
-    Gets the file location where this function itself (`get_caller_source_location()`) is called.
+    truncate_stacklevel: bool = False,
+) -> tuple[Path, int, str]:
+    r"""
+    Get the file location where this function itself (`get_caller_source_location()`) is called.
 
-    This is not usually useful by itself. However, with the use of the `stacklevel` argument, you can get the call
-    location at any point arbitrarily high up in the call stack from this function.
+    This is not usually useful by itself. However, with the use of the `stacklevel` argument,
+    you can get the call location at any point arbitrarily high up in the call stack from this
+    function.
 
     This potentially lets you determine the file location where any Python object was declared.
 
-    Examples:
+    Parameters
+    ----------
+    stacklevel : int
+        Choose the level of the stack that you want to retrieve source code at. Higher integers
+        will get you higher (i.e., more end-user-facing) in the stack. Same behaviour as the
+        `stacklevel` argument in warnings.warn().
+    truncate_stacklevel : bool
+        If True, will truncate the stacklevel to the maximum possible value. This allows
+        handling of an error case where the supplied `stacklevel` argument exceeds the depth of
+        the actual call stack.
 
-        Consider the file below (and assume we somehow have this function in scope):
+    Returns
+    -------
+    tuple[Path, int, str]
+        A tuple of (filename, lineno, code_context):
 
-        my_file.py:
-        >>> def my_func():
-        >>>     print(
-        >>>         get_caller_source_location(stacklevel=2)
-        >>>     )
-        >>>
-        >>> if_you_can_see_this_it_works = my_func()
-
-        This will print out the following:
-        (/path/to/my_file.py, 5, "if_you_can_see_this_it_works = my_func()\n")
-
-    Args:
-
-        stacklevel: Choose the level of the stack that you want to retrieve source code at. Higher integers will get
-        you higher (i.e., more end-user-facing) in the stack. Same behaviour as the `stacklevel` argument in
-        warnings.warn().
-
-        truncate_stacklevel: If True, will truncate the stacklevel to the maximum possible value. This
-        allows handling of an error case where the supplied `stacklevel` argument exceeds the depth of the
-        actual call stack.
-
-    Returns: A tuple of:
-        (filename, lineno, code_context)
-
-        * `filename`: a Path object (see `pathlib.Path` from the standard Python library) of the file where this function was called.
+        * `filename`: a Path object (see `pathlib.Path` from the standard Python library) of
+          the file where this function was called.
 
         * `lineno`: the line number in the file where this function was called.
 
-        * `code_context`: the immediate line of code where this function was called. A string. Note that, in the case of
-        multiline statements, this may not be a complete Python expression. Includes the trailing newline character ("\n") at the end.
+        * `code_context`: the immediate line of code where this function was called. A string.
+          Note that, in the case of multiline statements, this may not be a complete Python
+          expression. Includes the trailing newline character ("\n") at the end.
 
+    Examples
+    --------
+    Consider the file below (and assume we somehow have this function in scope):
+
+    my_file.py:
+
+    >>> def my_func():
+    >>>     print(
+    >>>         get_caller_source_location(stacklevel=2)
+    >>>     )
+    >>>
+    >>> if_you_can_see_this_it_works = my_func()
+
+    This will print out the following:
+
+        (/path/to/my_file.py, 5, "if_you_can_see_this_it_works = my_func()\n")
     """
     ### Go up `stacklevel` frames from the current one to get to the caller frame.
     frame = inspect.currentframe()
@@ -81,45 +89,55 @@ def get_caller_source_location(
 
 
 def get_source_code_from_location(
-    filename: Union[Path, str],
+    filename: Path | str,
     lineno: int,
-    code_context: str = None,
+    code_context: str | None = None,
     strip_lines: bool = False,
 ) -> str:
-    """
-    Gets the source code of the single statement that begins at the file location specified.
+    r"""
+    Get the source code of the single statement that begins at the file location specified.
 
-    File location must, at a minimum, contain the filename and the line number. Optionally, you can also provide `code_context`.
+    File location must, at a minimum, contain the filename and the line number. Optionally, you
+    can also provide `code_context`.
 
-     These should have the format:
+    These should have the format:
 
-        * `filename`: a Path object (see `pathlib.Path` from the standard Python library) of the file where this function was called.
+        * `filename`: a Path object (see `pathlib.Path` from the standard Python library) of
+          the file where this function was called.
 
         * `lineno`: the line number in the file where this function was called.
 
     Optionally, you can also provide `code_context`, which has the format:
 
-        * `code_context`: the immediate line of code where this function was called. A string. Note that, in the case of
-        multiline statements, this may not be a complete Python expression.
+        * `code_context`: the immediate line of code where this function was called. A string.
+          Note that, in the case of multiline statements, this may not be a complete Python
+          expression.
 
     You can get source code from further up the call stack by using the `stacklevel` argument.
 
-    Args:
+    Parameters
+    ----------
+    filename : Path | str
+        A Path object (see `pathlib.Path` from the standard Python library) of the file where
+        this function was called. Alternatively, a string containing a filename.
+    lineno : int
+        The line number in the file where this function was called. An integer. Should refer to
+        the first line of a string in question.
+    code_context : str | None
+        Optional. Should be a string containing the immediate line of code at this location. If
+        provided, allows short-circuiting (bypassing file I/O) if the line is a complete
+        expression.
+    strip_lines : bool
+        A boolean flag about whether or not to strip leading and trailing whitespace off each
+        line of a multi-line function call. See the built-in string method `str.strip()` for
+        behaviour.
 
-        filename: a Path object (see `pathlib.Path` from the standard Python library) of the file where this function
-        was called. Alternatively, a string containing a filename.
-
-        lineno: the line number in the file where this function was called. An integer. Should refer to the first
-        line of a string in question.
-
-        code_context: Optional. Should be a string containing the immediate line of code at this location. If
-        provided, allows short-circuiting (bypassing file I/O) if the line is a complete expression.
-
-        strip_lines: A boolean flag about whether or not to strip leading and trailing whitespace off each line of a
-        multi-line function call. See the built-in string method `str.strip()` for behaviour.
-
-    Returns: The source code of the call, as a string. Might be a multi-line string (i.e., contains '\n' characters)
-    if the call is multi-line. Almost certainly (but not guaranteed due to edge cases) to be a complete Python expression.
+    Returns
+    -------
+    str
+        The source code of the call, as a string. Might be a multi-line string (i.e., contains
+        '\n' characters) if the call is multi-line. Almost certain (but not guaranteed due to
+        edge cases) to be a complete Python expression.
     """
 
     ### If Python's auto-extracted "code context" is a compete statement, then you're done here.
@@ -128,7 +146,7 @@ def get_source_code_from_location(
             return code_context
 
     ### Initialize the caller source lines, which is a list of strings that contain the source for the call.
-    source_lines: List[str] = []
+    source_lines: list[str] = []
 
     ### Read the source lines of code surrounding the call
     try:
@@ -142,7 +160,8 @@ def get_source_code_from_location(
 
             def add_line() -> None:
                 """
-                Adds the subsequent line to the caller source lines (`caller_source_lines`). In-place.
+                Add the subsequent line to the caller source lines (`caller_source_lines`).
+                In-place.
                 """
                 line = f.readline()
 
@@ -179,30 +198,34 @@ def get_source_code_from_location(
 
 
 def get_caller_source_code(
-        stacklevel: int = 1,
-        truncate_stacklevel: bool=False,
-        strip_lines: bool = False
+    stacklevel: int = 1, truncate_stacklevel: bool = False, strip_lines: bool = False
 ) -> str:
-    """
-    Gets the source code of wherever this function is called.
+    r"""
+    Get the source code of wherever this function is called.
 
     You can get source code from further up the call stack by using the `stacklevel` argument.
 
-    Args:
+    Parameters
+    ----------
+    stacklevel : int
+        Choose the level of the stack that you want to retrieve source code at. Higher integers
+        will get you higher (i.e., more end-user-facing) in the stack. Same behaviour as the
+        `stacklevel` argument in warnings.warn().
+    truncate_stacklevel : bool
+        If True, will truncate the stacklevel to the maximum possible value. This allows
+        handling of an error case where the supplied `stacklevel` argument exceeds the depth of
+        the actual call stack.
+    strip_lines : bool
+        A boolean flag about whether or not to strip leading and trailing whitespace off each
+        line of a multi-line function call. See the built-in string method `str.strip()` for
+        behaviour.
 
-        stacklevel: Choose the level of the stack that you want to retrieve source code at. Higher integers will get
-        you higher (i.e., more end-user-facing) in the stack. Same behaviour as the `stacklevel` argument in
-        warnings.warn().
-
-        truncate_stacklevel: If True, will truncate the stacklevel to the maximum possible value. This
-        allows handling of an error case where the supplied `stacklevel` argument exceeds the depth of the
-        actual call stack.
-
-        strip_lines: A boolean flag about whether or not to strip leading and trailing whitespace off each line of a
-        multi-line function call. See the built-in string method `str.strip()` for behaviour.
-
-    Returns: The source code of the call, as a string. Might be a multi-line string (i.e., contains '\n' characters)
-    if the call is multi-line. Almost certainly (but not guaranteed due to edge cases) to be a complete Python expression.
+    Returns
+    -------
+    str
+        The source code of the call, as a string. Might be a multi-line string (i.e., contains
+        '\n' characters) if the call is multi-line. Almost certain (but not guaranteed due to
+        edge cases) to be a complete Python expression.
     """
 
     filename, lineno, code_context = get_caller_source_location(
@@ -218,17 +241,33 @@ def get_caller_source_code(
     )
 
 
-def get_function_argument_names_from_source_code(source_code: str) -> List[str]:
-    """
-    Gets the names of the function arguments found in a particular line of source code.
+def get_function_argument_names_from_source_code(source_code: str) -> list[str]:
+    r"""
+    Get the names of the function arguments found in a particular line of source code.
 
-    Specifically, it retrieves the names of the arguments in the first function call found in the source code string.
+    Specifically, it retrieves the names of the arguments in the first function call found in
+    the source code string.
 
-    If the source code line is an assignment statement, only the right-hand-side of the line is analyzed.
+    If the source code line is an assignment statement, only the right-hand-side of the line is
+    analyzed.
 
     Also, removes all line breaks ('\n').
 
-    Examples function inputs and outputs:
+    Parameters
+    ----------
+    source_code : str
+        A line of Python source code that includes a function call. Can be a multi-line piece
+        of source code (e.g., includes '\n').
+
+    Returns
+    -------
+    list[str]
+        A list of strings containing all the function arguments. If keyword arguments are
+        found, includes both the key and the value, as-written.
+
+    Examples
+    --------
+    Example function inputs and outputs:
 
         "f(a, b)"                -> ['a', 'b']
         "f(a,b)"                 -> ['a', 'b']
@@ -244,6 +283,9 @@ def get_function_argument_names_from_source_code(source_code: str) -> List[str]:
         "f(a(b,c), d)"           -> ['a(b,c)', 'd']
         "f({a:b}, c)"            -> ['{a:b}', 'c']
         "f(a[b], c)"             -> ['a[b]', 'c']
+        "f(a[1:2], b)"           -> ['a[1:2]', 'b']
+        "f(a[i, j], b)"          -> ['a[i, j]', 'b']
+        "f(lambda t: t**2, b)"   -> ['lambda t: t**2', 'b']
         "f({a:b, c:d}, e)"       -> ['{a:b, c:d}', 'e']
         "f({a:b,\nc:d}, e)"      -> ['{a:b,c:d}', 'e']
         "f(dict(a=b,c=d), e)"    -> ['dict(a=b,c=d)', 'e']
@@ -253,12 +295,6 @@ def get_function_argument_names_from_source_code(source_code: str) -> List[str]:
         "f(incomplete, "         -> raises ValueError
         "3 + 5"                  -> raises ValueError
         ""                       -> raises ValueError
-
-    Args:
-        source_code: A line of Python source code that includes a function call. Can be a multi-line piece of source code (e.g., includes '\n').
-
-    Returns: A list of strings containing all the function arguments. If keyword arguments are found, includes both the key and the value, as-written.
-
     """
 
     assignment_equals_index = 0
@@ -287,9 +323,10 @@ def get_function_argument_names_from_source_code(source_code: str) -> List[str]:
     if parenthesis_level == 0:
         raise ValueError("No function call was found in the source code provided!")
 
-    arg_names: List[str] = []
+    arg_names: list[str] = []
     current_arg = ""
     in_type_hinting_block = False
+    brackets_level = 0
 
     while parenthesis_level != 0:
         i += 1
@@ -307,12 +344,25 @@ def get_function_argument_names_from_source_code(source_code: str) -> List[str]:
             braces_level += 1
         elif char == "}":
             braces_level -= 1
+        elif char == "[":
+            brackets_level += 1
+        elif char == "]":
+            brackets_level -= 1
 
-        if char == "," and parenthesis_level == 1 and braces_level == 0:
+        at_top_level = (
+            parenthesis_level == 1 and braces_level == 0 and brackets_level == 0
+        )
+
+        if char == "," and at_top_level:
             arg_names.append(current_arg)
             current_arg = ""
             in_type_hinting_block = False
-        elif char == ":" and parenthesis_level == 1 and braces_level == 0:
+        elif (
+            char == ":"
+            and at_top_level
+            and not re.search(r"\blambda\b", current_arg)
+            # A ':' after a `lambda` is its body separator, not a type hint.
+        ):
             in_type_hinting_block = True
         elif parenthesis_level >= 1 and not in_type_hinting_block:
             current_arg += char
@@ -330,11 +380,12 @@ def get_function_argument_names_from_source_code(source_code: str) -> List[str]:
 def codegen(
     x: Any,
     indent_str: str = "    ",
-    _required_imports: Optional[Set[str]] = None,
+    _required_imports: set[str] | None = None,
     _recursion_depth: int = 0,
-) -> Tuple[str, Set[str]]:
+) -> tuple[str, set[str]]:
     """
-    Attempts to generate a string of Python code that, when evaluated, would produce the same value as the input.
+    Attempt to generate Python code that, when evaluated, would produce the same value as `x`.
+
     Also generates the required imports for the code to run.
 
     In other words, in general, the following should evaluate True:
@@ -346,50 +397,50 @@ def codegen(
 
     Not guaranteed to work for all inputs, but should work for most common cases.
 
-    Args:
-
-        x: The object to generate the code of.
-
-        indent_str: The string to use for indentation. Defaults to four spaces.
-
-        _required_imports: A set of strings containing the names of all required imports. This is an internal
+    Parameters
+    ----------
+    x : Any
+        The object to generate the code of.
+    indent_str : str
+        The string to use for indentation. Defaults to four spaces.
+    _required_imports : set[str] | None
+        A set of strings containing the names of all required imports. This is an internal
         argument that should not be used by the user.
+    _recursion_depth : int
+        The current recursion depth. This is an internal argument that should not be used by
+        the user.
 
-        _recursion_depth: The current recursion depth. This is an internal argument that should not be used by the user.
+    Returns
+    -------
+    tuple[str, set[str]]
+        A tuple containing:
 
-    Returns: A tuple containing:
+        - The string of Python code that, when evaluated, would produce the same value as the
+          input.
 
-        - The string of Python code that, when evaluated, would produce the same value as the input.
+        - A set of strings that, when evaluated, would import all the required imports for the
+          code to run.
 
-        - A set of strings that, when evaluated, would import all the required imports for the code to run.
+    Examples
+    --------
+    >>> codegen(5)
+    ('5', set())
 
-    Examples:
+    >>> codegen([1, 2, 3])
+    ('[1, 2, 3]', set())
 
-        >>> codegen(5)
-        ('5', set())
+    >>> codegen(np.array([1, 2, 3]))
+    ('np.array([1, 2, 3])', {'import numpy as np'})
 
-        >>> codegen([1, 2, 3])
-        ('[1, 2, 3]', set())
-
-        >>> codegen(np.array([1, 2, 3]))
-        ('np.array([1, 2, 3])', {'import numpy as np'})
-
-        >>> codegen(dict(my_int=4, my_array=np.array([1, 2, 3])))
-        ('{
-                'my_int': 4,
-                'my_array': np.array([1, 2, 3]),
-        }', {'import numpy as np'})
-
+    >>> codegen(dict(my_int=4, my_array=np.array([1, 2, 3])))
+    ('{
+            'my_int': 4,
+            'my_array': np.array([1, 2, 3]),
+    }', {'import numpy as np'})
     """
     ### Set defaults
     if _required_imports is None:
         _required_imports = set()
-
-    import_aliases = {
-        "aerosandbox": "asb",
-        "aerosandbox.numpy": "np",
-        "numpy": "np",
-    }
 
     indent = indent_str * _recursion_depth
     next_indent = indent_str * (_recursion_depth + 1)
@@ -488,12 +539,11 @@ def codegen(
         code = f"np.{repr(x)}"
 
     else:  # At this point, we assume it's a class instance, and could be from any package.
-
         module_name = x.__class__.__module__
         package_name = module_name.split(".")[0]
 
         if package_name == "builtins":
-            pre_string = ""
+            pass
         # elif package_name in import_aliases:
         #     pre_string = import_aliases[package_name] + "."
         else:
@@ -534,7 +584,9 @@ def codegen(
 if __name__ == "__main__":
 
     def dashes():
-        """A quick macro for drawing some dashes, to make the terminal output clearer to distinguish."""
+        """
+        Draw some dashes, as a quick macro to make the terminal output clearer to distinguish.
+        """
         print("\n" + "-" * 50 + "\n")
 
     dashes()

@@ -1,19 +1,16 @@
 """
-A series of utilities for working with CSV data extracted from WebPlotDigitizer.
+Provide a series of utilities for working with CSV data extracted from WebPlotDigitizer.
 
 https://automeris.io/WebPlotDigitizer/
 https://github.com/ankitrohatgi/WebPlotDigitizer
-
 """
 
 import numpy as np
-from typing import Dict
 from pathlib import Path
-from typing import Union
 
 
 def string_to_float(s: str) -> float:
-    """Converts a string input to a float. If not possible, returns NaN."""
+    """Convert a string input to a float. If not possible, returns NaN."""
     try:
         return float(s)
     except ValueError:
@@ -21,28 +18,33 @@ def string_to_float(s: str) -> float:
 
 
 def remove_nan_rows(a: np.ndarray) -> np.ndarray:
-    """Removes any rows in a 2D ndarray where any of the entries are NaN."""
+    """Remove any rows in a 2D ndarray where any of the entries are NaN."""
     nan_rows = np.any(np.isnan(a), axis=1)
     return a[~nan_rows, :]
 
 
 def read_webplotdigitizer_csv(
-    filename: Union[Path, str],
-) -> Dict[str, np.ndarray]:
+    filename: Path | str,
+) -> dict[str, np.ndarray]:
     """
-    Reads a CSV file produced by WebPlotDigitizer (https://automeris.io/WebPlotDigitizer/).
+    Read a CSV file produced by WebPlotDigitizer (https://automeris.io/WebPlotDigitizer/).
 
     If there's only one data series, produces a Dict with key "data" and value 2D ndarray.
 
-    If there are multiple data series, produces a Dict with keys of the names and values of 2D ndarrays.
+    If there are multiple data series, produces a Dict with keys of the names and values of 2D
+    ndarrays.
 
     2D ndarrays are sorted by their X-values before being returned.
 
-    Args:
-        filename: Filename, as a string or pathlib Path, or equivalent.
+    Parameters
+    ----------
+    filename : Path | str
+        Filename, as a string or pathlib Path, or equivalent.
 
-    Returns: A dictionary where keys are series names and values are data points.
-
+    Returns
+    -------
+    dict[str, np.ndarray]
+        A dictionary where keys are series names and values are data points.
     """
     delimiter = ","
     with open(filename, "r") as f:
@@ -70,7 +72,6 @@ def read_webplotdigitizer_csv(
     output = {}
 
     for i, title in enumerate(titles):
-
         series = all_data[:, 2 * i : 2 * i + 2]
         all_nan_rows = np.all(np.isnan(series), axis=1)
         series = series[~all_nan_rows, :]

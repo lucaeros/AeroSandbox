@@ -17,9 +17,9 @@ If you're developing, install AeroSandbox in editable mode. In other words:
 	* For developers that have been officially added as collaborators to the ASB repository on GitHub:
 		1. Clone the AeroSandbox repository from GitHub to your computer.
 2. Then, do these steps:
-	1. On your computer, open up a terminal in the AeroSandbox root directory. (To check that you're in the right place, view your current directory with either `dir` or `ls` depending on your OS; you should see a file called `setup.py`.)
+	1. On your computer, open up a terminal in the AeroSandbox root directory. (To check that you're in the right place, view your current directory with either `dir` or `ls` depending on your OS; you should see a file called `pyproject.toml`.)
 	2. If you already have an AeroSandbox installation on your computer, first uninstall that (`pip uninstall aerosandbox`).
-	3. Install the cloned copy of your repository in editable mode (`-e`), and with all optional dependencies (`pip install -e .[full,test,docs]`).
+	3. Install the cloned copy of your repository in editable mode (`-e`), and with all optional dependencies (`pip install -e ".[full,test,docs]"`). Alternatively, if you use [uv](https://docs.astral.sh/uv/), run `uv sync --all-extras` to create a `.venv` with an editable install and all optional dependencies.
 	4. Switch to the develop branch for normal use (`git checkout develop`)
 	5. *While on the develop branch*, create a new branch if you want to make changes (`git checkout -b feature/insert-your-feature-name-here`)
 3. From here, you can make your changes. After you are finished:
@@ -119,16 +119,27 @@ This is all pretty standard across all scientific computing in Python:
     * Document the purpose, function, and expected input type(s) of every input parameter within this docstring.
     * [Type hint](https://realpython.com/lessons/type-hinting/) all functions that you write.
 
+  **Type Hinting Guidelines:**
+  
+  * Use built-in types (`list`, `dict`, `tuple`) directly instead of `List`, `Dict`, `Tuple` from `typing`
+  * Use the `|` operator for unions: `float | np.ndarray` instead of `Union[float, np.ndarray]`
+  * Use `X | None` instead of `Optional[X]`
+  * Use `Sequence[T]` or `Iterable[T]` from `typing` for input parameters that are only iterated or indexed (not mutated)
+  * Use specific types (`list[T]`, `dict[K, V]`) for return types when the function explicitly returns those types
+  * As a general principle: input type hints should be as broad as possible while still being useful; output type hints should be as narrow as possible while still being useful
+
   We illustrate both of these requirements with the following example:
     ```python
-    from typing import List, Tuple, Union  
-  # Note: List, Tuple, Dict, Union, etc. (note capitalization) need to be imported from the built-in "typing"
+    from typing import Sequence
+    # Note: For type hints, use built-in types (list, dict, tuple) directly, or Sequence/Iterable from typing
+    # Use the | operator for unions instead of Union from typing
+    # Use X | None instead of Optional[X]
     
    
     def is_my_dog_happy(
         temperature: float,  # <-- this is a type hint for a parameter!
         n_boats: int,  # note that Python doesn't enforce the type you specify, they're just "hints" for the user
-        coffee_brands: Union[List[str], Tuple[str]]  # You can denote multiple acceptable inputs with "Union", imported from "typing"
+        coffee_brands: Sequence[str]  # Use Sequence for input parameters that are only iterated/indexed
     ) -> bool:  # <-- this is a type hint for a return!
         """
         This function tells me if my dog is happy today.
@@ -140,7 +151,7 @@ This is all pretty standard across all scientific computing in Python:
         Args:
             temperature: The temperature outside, in Kelvin [float]
             n_boats: The number of boats I see on the Charles River [int]
-            coffee_brands: An iterable of the names of various brands of coffee [List[str]]
+            coffee_brands: An iterable of the names of various brands of coffee [Sequence[str]]
   
         Returns:
             Whether or not my dog is happy [bool]
@@ -149,6 +160,75 @@ This is all pretty standard across all scientific computing in Python:
     ```
     * Also notice that in this example above, we put each parameter on its own line. Generally, do this.
     * Include usage examples in runnable Python in for each function in its docstring (demarcated by `>>>`)
+    
+    Here's another example showing unions and optional types:
+    ```python
+    import aerosandbox.numpy as np
+    
+    def compute_dynamic_pressure(
+        velocity: float | np.ndarray,  # Can accept either a float or an array
+        density: float | None = None,   # Optional parameter using | None instead of Optional
+    ) -> float | np.ndarray:  # Returns the same type as the input
+        """
+        Computes dynamic pressure.
+        
+        Args:
+            velocity: Velocity value(s) [float or np.ndarray]
+            density: Air density. If None, uses standard atmosphere [float or None]
+            
+        Returns:
+            Dynamic pressure value(s) [float or np.ndarray]
+        """
+        if density is None:
+            density = 1.225  # Standard sea level density
+        return 0.5 * density * velocity ** 2
+    ```
+
+  **AeroSandbox Type Aliases:**
+  
+  AeroSandbox provides type aliases in `aerosandbox.numpy.typing` for common patterns. These handle the dual NumPy/CasADi nature of the library.
+  
+  *Naming Conventions:*
+  - Types WITHOUT prefix: **Hybrid** (NumPy OR CasADi) - `Scalar`, `Array`, `Vectorizable`
+  - Types WITH `Concrete` prefix: **NumPy-only** (for external tools, I/O, plotting) - `ConcreteScalar`, `ConcreteArray`
+  - Types WITH `Like` suffix: **Permissive inputs** (accept scalars, sequences, arrays) - `ArrayLike`, `VectorLike`
+  
+  *Type Hierarchy:*
+  
+  Hybrid types extend their Concrete counterparts by adding CasADi support:
+  ```
+  ConcreteScalar → Scalar (adds CasADi)
+  ConcreteArray → Array (adds CasADi)
+  ConcreteVectorizable → Vectorizable (adds CasADi)
+  ConcreteArrayLike → ArrayLike (adds CasADi)
+  ```
+  
+  *When to Use Each Type:*
+  
+  | Type | Use For | Example |
+  |------|---------|---------|
+  | `Scalar` | Single numeric value (may be symbolic) | Function returning a single result |
+  | `Array` | N-dimensional array output | `np.linspace(...)` return type |
+  | `Vectorizable` | Parameters that optionally broadcast element-wise along 1 dimension | `OperatingPoint(velocity=..., alpha=...)` |
+  | `ArrayLike` | Permissive array input (converted via `asarray()`) | `np.sum(x)` input |
+  | `ConcreteScalar` | External tool numeric input | XFoil alpha parameter |
+  | `ConcreteArray` | External tool array I/O | Interpolation lookup table |
+  
+  *Example Usage:*
+  ```python
+  from aerosandbox.numpy.typing import ArrayLike, Array, Vectorizable
+  
+  def my_function(
+      data: ArrayLike,           # Accepts scalars, lists, arrays, CasADi
+      scale: Vectorizable = 1.0, # Broadcasts element-wise
+  ) -> Array:
+      """Process data with optional scaling."""
+      from aerosandbox.numpy import asarray
+      data = asarray(data)       # Convert permissive input to array
+      return data * scale
+  ```
+  
+  For the full type definitions and documentation, see `aerosandbox/numpy/typing.py`.
 
 * With rare exceptions, do not type the same sequence of characters more than twice. For example:
 
@@ -190,8 +270,8 @@ This is all pretty standard across all scientific computing in Python:
 	
 	### Instead, do this:
 	def good_function(
-			my_parameter: List=None,
-			another_param: Dict=None,
+			my_parameter: list | None = None,
+			another_param: dict | None = None,
 	):
 		### Set defaults
 		if my_parameter is None:
@@ -199,6 +279,10 @@ This is all pretty standard across all scientific computing in Python:
 		if another_param is None:
 			another_param = {}
 	```
+
+## Intellectual Property Ownership
+
+As a condition of contribution to this repository, contributors agree to transfer all right, title, and interest in their contributions to the Core Developers of this repository. The Core Developers are defined as the set of individuals who, at any time, simultaneously fulfill all three criteria: a) They are authorized as a collaborator on this GitHub repository, b) their name is listed in the `README.md` as an author, and c) their total number of Git commits to this repository is at least 20% that of the individual with the highest number of commits to this repository. This is not intended to impede the ability of contributors to use their own contributions, but rather to allow Core Developers to make timely decisions for the project without tracking down all contributors who have made minor commits many years ago. Notably, the Core Developers grant both the contributor and other entities the broad rights described in `LICENSE.txt`.
 
 # Code of Conduct
 

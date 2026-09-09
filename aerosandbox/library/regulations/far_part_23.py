@@ -1,6 +1,7 @@
 import aerosandbox.numpy as np
+from aerosandbox.numpy.typing import Vectorizable
 from aerosandbox.tools import units as u
-from typing import Tuple
+from typing import Literal
 
 
 ### See also:
@@ -8,30 +9,33 @@ from typing import Tuple
 
 
 def limit_load_factors(
-    design_mass_TOGW: float,
-    category: str = "normal",
-) -> Tuple[float, float]:
+    design_mass_TOGW: Vectorizable,
+    category: Literal["normal", "utility", "acrobatic", "commuter"] = "normal",
+) -> tuple[Vectorizable, Vectorizable]:
     """
-    Computes the required limit load factors for FAR Part 23 certification.
+    Compute the required limit load factors for FAR Part 23 certification.
 
-    From FAR Part 23: "Airworthiness Standards: Normal, Utility, Acrobatic, and Commuter Category Airplanes"
-    Section 23.337: "Limit maneuvering load factors"
+    From FAR Part 23: "Airworthiness Standards: Normal, Utility, Acrobatic, and Commuter
+    Category Airplanes", Section 23.337: "Limit maneuvering load factors".
 
-    Args:
+    Parameters
+    ----------
+    design_mass_TOGW : Vectorizable
+        The design takeoff gross weight of the aircraft [kg].
+    category : Literal["normal", "utility", "acrobatic", "commuter"]
+        The category of the aircraft. Valid values are:
 
-        design_mass_TOGW: The design takeoff gross weight of the aircraft [kg].
+        - "normal"
+        - "utility"
+        - "acrobatic"
+        - "commuter"
 
-        category: The category of the aircraft. Valid values are:
-
-            - "normal"
-            - "utility"
-            - "acrobatic"
-            - "commuter"
-
-    Returns:
-        A tuple with (positive load factor, negative load factor). These are the maximum positive and negative limit load
-        factors that the aircraft should withstand for Part 23 certification.
-
+    Returns
+    -------
+    tuple[Vectorizable, Vectorizable]
+        A tuple with (positive load factor, negative load factor). These are the maximum
+        positive and negative limit load factors that the aircraft should withstand for
+        Part 23 certification.
     """
     ### Compute positive load factor
     if category == "normal" or category == "commuter":
@@ -46,7 +50,8 @@ def limit_load_factors(
 
     else:
         raise ValueError(
-            "Bad value of `category`. Valid values are 'normal', 'utility', 'acrobatic', and 'commuter'."
+            f"{category=!r} is not a valid option. "
+            f"Valid options are: 'normal', 'utility', 'acrobatic', 'commuter'."
         )
 
     ### Compute negative load factor
@@ -55,6 +60,9 @@ def limit_load_factors(
     elif category == "acrobatic":
         negative_load_factor = -0.5 * positive_load_factor
     else:
-        raise ValueError()
+        raise ValueError(
+            f"{category=!r} is not a valid option. "
+            f"Valid options are: 'normal', 'utility', 'acrobatic', 'commuter'."
+        )
 
     return positive_load_factor, negative_load_factor
