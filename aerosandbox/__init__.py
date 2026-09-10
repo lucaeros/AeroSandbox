@@ -54,6 +54,7 @@ from aerosandbox.aerodynamics import (
     ViscousVortexLatticeMethod,
     LiftingLine,
     NonlinearLiftingLine,
+    NonlinearLiftingLineFast,
     AeroBuildup,
     AVL,
 )

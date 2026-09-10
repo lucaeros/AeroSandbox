@@ -155,7 +155,7 @@ class NonlinearLiftingLine(ImplicitAnalysis):
             + "\n)"
         )
 
-    def run(self, solve: bool = True) -> dict[str, Any]:
+    def run(self, solve: bool = True, vortex_strengths_init=[]) -> dict[str, Any]:
         """
         Compute the aerodynamic forces.
 

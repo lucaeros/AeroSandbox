@@ -4,6 +4,7 @@ from aerosandbox.aerodynamics.aero_3D import (
     ViscousVortexLatticeMethod,
     LiftingLine,
     NonlinearLiftingLine,
+    NonlinearLiftingLineFast,
     AeroBuildup,
     AVL,
 )

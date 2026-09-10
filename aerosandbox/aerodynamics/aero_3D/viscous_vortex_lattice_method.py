@@ -21,6 +21,116 @@ def wide(array):
     return np.reshape(array, (1, -1))
 
 
+def _monotonic_branch_indices(cl: np.ndarray) -> tuple[int, int]:
+    """Start/end indices of the strictly-increasing CL branch containing cl≈0."""
+    idx = int(np.argmin(np.abs(cl)))
+    left = idx
+    while left > 0 and cl[left - 1] < cl[left]:
+        left -= 1
+    right = idx
+    while right < len(cl) - 1 and cl[right] < cl[right + 1]:
+        right += 1
+    return left, right
+
+
+def _cdp_from_polar(alphas, CL, CD, cl_query):
+    """Profile CD at cl_query: bspline on the unstalled CL->CD branch, with a
+    linear-2*pi post-stall extrapolation evaluated in CD(alpha) space."""
+    lo, hi = _monotonic_branch_indices(CL)
+    CL_min, CL_max = CL[lo], CL[hi]
+    spl_cl_cd = InterpolatedModel(CL[lo : hi + 1], CD[lo : hi + 1], method="bspline")
+    spl_aoa_cd = InterpolatedModel(alphas, CD, method="bspline")
+
+    cl_arr = np.atleast_1d(np.asarray(cl_query, dtype=float))
+    cdp = np.empty(cl_arr.shape, dtype=float)
+    for j in range(cl_arr.size):
+        cl = cl_arr[j]
+        if cl < CL_min:
+            cdp[j] = float(spl_cl_cd(CL_min))
+        elif cl <= CL_max:
+            cdp[j] = float(spl_cl_cd(cl))
+        else:
+            alpha_stalled = (cl - CL_max) / (2 * np.pi) * 180 / np.pi + alphas[hi]
+            cdp[j] = float(spl_aoa_cd(alpha_stalled))
+    return cdp
+
+
+def _horseshoe_geometry_cache(field_points, left, right, vortex_core_radius):
+    """Precompute the trailing-direction-independent part of the horseshoe influence
+    (bound leg + geometric norms), shared across all angles of attack."""
+    a_x = tall(field_points[:, 0]) - wide(left[:, 0])
+    a_y = tall(field_points[:, 1]) - wide(left[:, 1])
+    a_z = tall(field_points[:, 2]) - wide(left[:, 2])
+    b_x = tall(field_points[:, 0]) - wide(right[:, 0])
+    b_y = tall(field_points[:, 1]) - wide(right[:, 1])
+    b_z = tall(field_points[:, 2]) - wide(right[:, 2])
+
+    def smoothed_inv(x):
+        if vortex_core_radius != 0:
+            return x / (x**2 + vortex_core_radius**2)
+        return 1 / x
+
+    a_cross_b_x = a_y * b_z - a_z * b_y
+    a_cross_b_y = a_z * b_x - a_x * b_z
+    a_cross_b_z = a_x * b_y - a_y * b_x
+    a_dot_b = a_x * b_x + a_y * b_y + a_z * b_z
+
+    norm_a = (a_x**2 + a_y**2 + a_z**2) ** 0.5
+    norm_b = (b_x**2 + b_y**2 + b_z**2) ** 0.5
+    norm_a_inv = smoothed_inv(norm_a)
+    norm_b_inv = smoothed_inv(norm_b)
+
+    term1 = (norm_a_inv + norm_b_inv) * smoothed_inv(norm_a * norm_b + a_dot_b)
+
+    return {
+        "a_x": a_x,
+        "a_y": a_y,
+        "a_z": a_z,
+        "b_x": b_x,
+        "b_y": b_y,
+        "b_z": b_z,
+        "norm_a": norm_a,
+        "norm_b": norm_b,
+        "norm_a_inv": norm_a_inv,
+        "norm_b_inv": norm_b_inv,
+        "bound_x": a_cross_b_x * term1,
+        "bound_y": a_cross_b_y * term1,
+        "bound_z": a_cross_b_z * term1,
+    }
+
+
+def _horseshoe_apply(cache, u_dir, vortex_core_radius):
+    """Finish the horseshoe influence (per unit gamma) for a given trailing direction,
+    reusing the cached bound-leg/geometry terms."""
+    a_x, a_y, a_z = cache["a_x"], cache["a_y"], cache["a_z"]
+    b_x, b_y, b_z = cache["b_x"], cache["b_y"], cache["b_z"]
+
+    def smoothed_inv(x):
+        if vortex_core_radius != 0:
+            return x / (x**2 + vortex_core_radius**2)
+        return 1 / x
+
+    ux, uy, uz = u_dir[0], u_dir[1], u_dir[2]
+    a_cross_u_x = a_y * uz - a_z * uy
+    a_cross_u_y = a_z * ux - a_x * uz
+    a_cross_u_z = a_x * uy - a_y * ux
+    a_dot_u = a_x * ux + a_y * uy + a_z * uz
+
+    b_cross_u_x = b_y * uz - b_z * uy
+    b_cross_u_y = b_z * ux - b_x * uz
+    b_cross_u_z = b_x * uy - b_y * ux
+    b_dot_u = b_x * ux + b_y * uy + b_z * uz
+
+    term2 = cache["norm_a_inv"] * smoothed_inv(cache["norm_a"] - a_dot_u)
+    term3 = cache["norm_b_inv"] * smoothed_inv(cache["norm_b"] - b_dot_u)
+
+    const = 1 / (4 * np.pi)
+    u = const * (cache["bound_x"] + a_cross_u_x * term2 - b_cross_u_x * term3)
+    v = const * (cache["bound_y"] + a_cross_u_y * term2 - b_cross_u_y * term3)
+    w = const * (cache["bound_z"] + a_cross_u_z * term2 - b_cross_u_z * term3)
+    return u, v, w
+
+
 class ViscousVortexLatticeMethod(ExplicitAnalysis):
     """
     An explicit (linear) vortex-lattice-method aerodynamics analysis.
@@ -84,6 +194,10 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
         self.xtr_lower = xtr_lower
         self.xtr_upper = xtr_upper
         self.viscous = viscous
+        self._section_polars = None
+        self._polar_meta = None
+        self._hs_cache = {}
+        self._geom = None
 
         ### Determine whether you should run the problem as symmetric
         self.run_symmetric = False
@@ -114,6 +228,334 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
             )
             + "\n)"
         )
+
+    def _section_airfoils_and_chords(self):
+        """Blended airfoil + reference chord of each spanwise section, in run()'s order."""
+        airfoils: List[Airfoil] = []
+        chords_full = []
+        for wing in self.airplane.wings:
+            if self.spanwise_resolution > 1:
+                wing = wing.subdivide_sections(
+                    ratio=self.spanwise_resolution,
+                    spacing_function=self.spanwise_spacing_function,
+                )
+            for xsec_a, xsec_b in zip(wing.xsecs[:-1], wing.xsecs[1:]):
+                airfoils.append(
+                    xsec_a.airfoil.blend_with_another_airfoil(
+                        airfoil=xsec_b.airfoil, blend_fraction=0.5
+                    )
+                )
+            points, faces = wing.mesh_thin_surface(
+                method="quad", chordwise_resolution=1, add_camber=False
+            )
+            fl, bl = points[faces[:, 0], :], points[faces[:, 1], :]
+            br, fr = points[faces[:, 2], :], points[faces[:, 3], :]
+            chord_vectors = (bl + br) / 2 - (fl + fr) / 2
+            chords_full.append(np.linalg.norm(chord_vectors, axis=1))
+        chords_full = np.concatenate(chords_full)
+        return airfoils, chords_full[: len(airfoils)]
+
+    def compute_polars(
+        self,
+        velocities: np.ndarray = None,
+        alphas: np.ndarray = None,
+        n_Re: int = 6,
+        Re_bounds: tuple = None,
+        cl_grid: np.ndarray = None,
+        model_size: str = "large",
+        mach: float = None,
+    ):
+        """Precompute a per-section CD(Re, CL) interpolant so run() needs no NeuralFoil calls.
+
+        Section polars depend only on Reynolds number (fixed geometry), not on angle of
+        attack, so precomputing once lets you sweep alpha / drive a trim loop cheaply.
+
+        Args:
+            velocities: Freestream speeds [m/s] the Re grid must cover (uses section chords).
+            alphas: AoA samples [deg]. Default 100 pts over [-10, 25].
+            n_Re: Reynolds grid size.
+            Re_bounds: Explicit (Re_min, Re_max); overrides `velocities` if given.
+            cl_grid: CL samples for the CD(Re, CL) grid. Default 80 pts over [-1.5, 2.5].
+            model_size: NeuralFoil model size.
+            mach: Mach for the polar; defaults to the operating point's Mach.
+        """
+        if alphas is None:
+            alphas = np.linspace(-10, 25, num=100)
+        if cl_grid is None:
+            cl_grid = np.linspace(-1.5, 2.5, 80)
+        if mach is None:
+            mach = self.op_point.mach()
+
+        airfoils, chords = self._section_airfoils_and_chords()
+
+        if Re_bounds is None:
+            if velocities is not None:
+                velocities = np.atleast_1d(np.array(velocities, dtype=float))
+                mu = self.op_point.atmosphere.dynamic_viscosity()
+                rho = self.op_point.atmosphere.density()
+                Re_bounds = (
+                    rho * np.min(velocities) * np.min(chords) / mu,
+                    rho * np.max(velocities) * np.max(chords) / mu,
+                )
+            else:
+                Re_sections = self.op_point.reynolds(chords)
+                Re_bounds = (0.4 * np.min(Re_sections), 2.0 * np.max(Re_sections))
+
+        Re_grid = np.geomspace(Re_bounds[0], Re_bounds[1], n_Re)
+
+        section_polars = []
+        for af in airfoils:
+            cdp_grid = np.empty((n_Re, len(cl_grid)))
+            for k, Re in enumerate(Re_grid):
+                aero = af.get_aero_from_neuralfoil(
+                    alpha=alphas,
+                    Re=Re,
+                    mach=mach,
+                    xtr_lower=self.xtr_lower,
+                    xtr_upper=self.xtr_upper,
+                    n_crit=self.n_crit,
+                    model_size=model_size,
+                )
+                cdp_grid[k, :] = _cdp_from_polar(
+                    alphas, aero["CL"], aero["CD"], cl_grid
+                )
+            section_polars.append(
+                InterpolatedModel(
+                    {"Re": Re_grid, "cl": cl_grid},
+                    cdp_grid,
+                    method="linear",
+                    fill_value=None,  # linear extrapolation outside the grid
+                )
+            )
+
+        self._section_polars = section_polars
+        self._polar_meta = {
+            "Re_grid": Re_grid,
+            "cl_grid": cl_grid,
+            "alphas": alphas,
+            "n_sections": len(airfoils),
+        }
+        return section_polars
+
+    def _evaluate_section_cdp(self, Res, local_cl):
+        """Profile CD per section from the cached interpolant, else NeuralFoil on the fly."""
+        n = len(local_cl)
+        if self._section_polars is not None and self._polar_meta["n_sections"] == n:
+            return np.array(
+                [
+                    float(self._section_polars[i]({"Re": Res[i], "cl": local_cl[i]}))
+                    for i in range(n)
+                ]
+            )
+
+        alphas = np.linspace(-10, 25, num=100)
+        cdp = np.empty(n)
+        for i, af in enumerate(self.airfoils):
+            aero = af.get_aero_from_neuralfoil(
+                alpha=alphas,
+                Re=Res[i],
+                mach=0.03,
+                xtr_lower=self.xtr_lower,
+                xtr_upper=self.xtr_upper,
+                n_crit=self.n_crit,
+                model_size="large",
+            )
+            cdp[i] = _cdp_from_polar(alphas, aero["CL"], aero["CD"], local_cl[i])[0]
+        return cdp
+
+    def _horseshoe_unit_influence(self, field_points, cache_key):
+        """Induced velocity per unit gamma at `field_points` from every horseshoe, using the
+        current (wind-aligned) trailing direction. Caches the alpha-independent geometry so
+        an angle-of-attack sweep only recomputes the trailing-leg terms."""
+        left = self.left_vortex_vertices
+        right = self.right_vortex_vertices
+        u_dir = (
+            self.steady_freestream_direction
+            if self.align_trailing_vortices_with_wind
+            else np.array([1.0, 0.0, 0.0])
+        )
+        sig = (
+            field_points.shape,
+            hash(field_points.tobytes()),
+            hash(left.tobytes()),
+            hash(right.tobytes()),
+            float(self.vortex_core_radius),
+        )
+        cache = self._hs_cache.get(cache_key)
+        if cache is None or cache.get("sig") != sig:
+            cache = _horseshoe_geometry_cache(
+                field_points, left, right, self.vortex_core_radius
+            )
+            cache["sig"] = sig
+            self._hs_cache[cache_key] = cache
+        return _horseshoe_apply(cache, u_dir, self.vortex_core_radius)
+
+    def _ensure_geometry(self):
+        """Build (once) and cache all angle-of-attack-independent mesh geometry, so repeated
+        run()/solve_cl() calls skip re-meshing."""
+        if self._geom is None:
+            front_left_vertices = []
+            back_left_vertices = []
+            back_right_vertices = []
+            front_right_vertices = []
+            is_trailing_edge = []
+            airfoils: List[Airfoil] = []
+            for wing in self.airplane.wings:
+                if self.spanwise_resolution > 1:
+                    wing = wing.subdivide_sections(
+                        ratio=self.spanwise_resolution,
+                        spacing_function=self.spanwise_spacing_function,
+                    )
+                points, faces = wing.mesh_thin_surface(
+                    method="quad",
+                    chordwise_resolution=self.chordwise_resolution,
+                    chordwise_spacing_function=self.chordwise_spacing_function,
+                    add_camber=True,
+                )
+                front_left_vertices.append(points[faces[:, 0], :])
+                back_left_vertices.append(points[faces[:, 1], :])
+                back_right_vertices.append(points[faces[:, 2], :])
+                front_right_vertices.append(points[faces[:, 3], :])
+                is_trailing_edge.append(
+                    (np.arange(len(faces)) + 1) % self.chordwise_resolution == 0
+                )
+                for xsec_a, xsec_b in zip(wing.xsecs[:-1], wing.xsecs[1:]):
+                    airfoils.append(
+                        xsec_a.airfoil.blend_with_another_airfoil(
+                            airfoil=xsec_b.airfoil, blend_fraction=0.5
+                        )
+                    )
+            front_left_vertices = np.concatenate(front_left_vertices)
+            back_left_vertices = np.concatenate(back_left_vertices)
+            back_right_vertices = np.concatenate(back_right_vertices)
+            front_right_vertices = np.concatenate(front_right_vertices)
+            is_trailing_edge = np.concatenate(is_trailing_edge)
+
+            diag1 = front_right_vertices - back_left_vertices
+            diag2 = front_left_vertices - back_right_vertices
+            cross = np.cross(diag1, diag2)
+            cross_norm = np.linalg.norm(cross, axis=1)
+            normal_directions = cross / tall(cross_norm)
+            areas = cross_norm / 2
+
+            left_vortex_vertices = (
+                0.75 * front_left_vertices + 0.25 * back_left_vertices
+            )
+            right_vortex_vertices = (
+                0.75 * front_right_vertices + 0.25 * back_right_vertices
+            )
+            vortex_centers = (left_vortex_vertices + right_vortex_vertices) / 2
+            vortex_bound_leg = right_vortex_vertices - left_vortex_vertices
+            collocation_points = 0.5 * (
+                0.25 * front_left_vertices + 0.75 * back_left_vertices
+            ) + 0.5 * (0.25 * front_right_vertices + 0.75 * back_right_vertices)
+
+            nx = self.chordwise_resolution
+            ny = len(collocation_points) // nx
+            ny_2 = ny // 2
+
+            # trapezoidal geometry with only 1 panel chordwise (viscous build-up)
+            vp_fl, vp_bl, vp_br, vp_fr = [], [], [], []
+            for wing in self.airplane.wings:
+                if self.spanwise_resolution > 1:
+                    wing = wing.subdivide_sections(
+                        ratio=self.spanwise_resolution,
+                        spacing_function=self.spanwise_spacing_function,
+                    )
+                points, faces = wing.mesh_thin_surface(
+                    method="quad", chordwise_resolution=1, add_camber=False
+                )
+                vp_fl.append(points[faces[:, 0], :])
+                vp_bl.append(points[faces[:, 1], :])
+                vp_br.append(points[faces[:, 2], :])
+                vp_fr.append(points[faces[:, 3], :])
+            vp_fl = np.concatenate(vp_fl)
+            vp_bl = np.concatenate(vp_bl)
+            vp_br = np.concatenate(vp_br)
+            vp_fr = np.concatenate(vp_fr)
+            vp_left = 0.75 * vp_fl + 0.25 * vp_bl
+            vp_right = 0.75 * vp_fr + 0.25 * vp_br
+            vp_centers = (vp_left + vp_right) / 2
+            vp_cross = np.cross(vp_fr - vp_bl, vp_fl - vp_br)
+            vp_cross_norm = np.linalg.norm(vp_cross, axis=1)
+            vp_normals = vp_cross / tall(vp_cross_norm)
+            vp_areas = vp_cross_norm / 2
+            vp_chords = np.linalg.norm(
+                (vp_bl + vp_br) / 2 - (vp_fl + vp_fr) / 2, axis=1
+            )
+            span_centers = vp_centers[:ny_2, 1]
+            span_centers_normalized = span_centers / vp_centers[ny_2 - 1, 1]
+            span_edges = np.append(vp_left[:ny_2, 1], vp_right[ny_2 - 1, 1])
+
+            self._geom = {
+                "front_left_vertices": front_left_vertices,
+                "back_left_vertices": back_left_vertices,
+                "back_right_vertices": back_right_vertices,
+                "front_right_vertices": front_right_vertices,
+                "is_trailing_edge": is_trailing_edge,
+                "normal_directions": normal_directions,
+                "areas": areas,
+                "left_vortex_vertices": left_vortex_vertices,
+                "right_vortex_vertices": right_vortex_vertices,
+                "vortex_centers": vortex_centers,
+                "vortex_bound_leg": vortex_bound_leg,
+                "collocation_points": collocation_points,
+                "airfoils": airfoils,
+                "nx": nx,
+                "ny": ny,
+                "ny_2": ny_2,
+                "vp_left_vortex_vertices": vp_left,
+                "vp_right_vortex_vertices": vp_right,
+                "vp_vortex_centers": vp_centers,
+                "vp_normal_directions": vp_normals,
+                "vp_areas": vp_areas,
+                "vp_chords": vp_chords,
+                "span_centers": span_centers,
+                "span_centers_normalized": span_centers_normalized,
+                "span_edges": span_edges,
+            }
+
+        g = self._geom
+        self.front_left_vertices = g["front_left_vertices"]
+        self.back_left_vertices = g["back_left_vertices"]
+        self.back_right_vertices = g["back_right_vertices"]
+        self.front_right_vertices = g["front_right_vertices"]
+        self.is_trailing_edge = g["is_trailing_edge"]
+        self.normal_directions = g["normal_directions"]
+        self.areas = g["areas"]
+        self.left_vortex_vertices = g["left_vortex_vertices"]
+        self.right_vortex_vertices = g["right_vortex_vertices"]
+        self.vortex_centers = g["vortex_centers"]
+        self.vortex_bound_leg = g["vortex_bound_leg"]
+        self.collocation_points = g["collocation_points"]
+        self.airfoils = g["airfoils"]
+        return g
+
+    def solve_cl(
+        self,
+        CL_target: float,
+        alpha_bracket: tuple = (-10.0, 25.0),
+        maxiter: int = 50,
+    ) -> Dict[str, Any]:
+        """Trim to a target lift coefficient by solving for angle of attack [deg].
+
+        Reuses the cached mesh, horseshoe geometry, and section polars across iterations, so
+        only the alpha-dependent solve is repeated. Sets `op_point.alpha` to the solution and
+        returns the converged `run()` result dict with an added 'alpha' key.
+        """
+        self._ensure_geometry()
+
+        def residual(alpha):
+            self.op_point.alpha = alpha
+            return self.run()["CL"] - CL_target
+
+        sol = optimize.root_scalar(
+            residual, bracket=list(alpha_bracket), method="brentq", maxiter=maxiter
+        )
+        self.op_point.alpha = sol.root
+        result = self.run()
+        result["alpha"] = sol.root
+        return result
 
     def run(self) -> Dict[str, Any]:
         """
@@ -146,100 +588,11 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
         if self.verbose:
             print("Meshing...")
 
-        ##### Make Panels
-        front_left_vertices = []
-        back_left_vertices = []
-        back_right_vertices = []
-        front_right_vertices = []
-        is_trailing_edge = []
-        airfoils: List[Airfoil] = []
-        control_surfaces: List[List[ControlSurface]] = []
-
-        for wing in self.airplane.wings:
-            if self.spanwise_resolution > 1:
-                wing = wing.subdivide_sections(
-                    ratio=self.spanwise_resolution,
-                    spacing_function=self.spanwise_spacing_function,
-                )
-
-            points, faces = wing.mesh_thin_surface(
-                method="quad",
-                chordwise_resolution=self.chordwise_resolution,
-                chordwise_spacing_function=self.chordwise_spacing_function,
-                add_camber=True,
-            )
-            # place middle section to zero
-            # points[faces[:self.chordwise_resolution, :2], 1] = 0
-            # points[faces[faces.shape[0]//2:faces.shape[0]//2+self.chordwise_resolution, 2:4], 1] = 0
-
-            front_left_vertices.append(points[faces[:, 0], :])
-            back_left_vertices.append(points[faces[:, 1], :])
-            back_right_vertices.append(points[faces[:, 2], :])
-            front_right_vertices.append(points[faces[:, 3], :])
-            is_trailing_edge.append(
-                (np.arange(len(faces)) + 1) % self.chordwise_resolution == 0
-            )
-            wing_airfoils = []
-            wing_control_surfaces = []
-
-            for xsec_a, xsec_b in zip(
-                wing.xsecs[:-1], wing.xsecs[1:]
-            ):  # Do the right side
-                wing_airfoils.append(
-                    xsec_a.airfoil.blend_with_another_airfoil(
-                        airfoil=xsec_b.airfoil,
-                        blend_fraction=0.5,
-                    )
-                )
-                wing_control_surfaces.append(xsec_a.control_surfaces)
-
-            airfoils.extend(wing_airfoils)
-            control_surfaces.extend(wing_control_surfaces)
-
-        front_left_vertices = np.concatenate(front_left_vertices)
-        back_left_vertices = np.concatenate(back_left_vertices)
-        back_right_vertices = np.concatenate(back_right_vertices)
-        front_right_vertices = np.concatenate(front_right_vertices)
-        is_trailing_edge = np.concatenate(is_trailing_edge)
-
-        ### Compute panel statistics
-        diag1 = front_right_vertices - back_left_vertices
-        diag2 = front_left_vertices - back_right_vertices
-        cross = np.cross(diag1, diag2)
-        cross_norm = np.linalg.norm(cross, axis=1)
-        normal_directions = cross / tall(cross_norm)
-        areas = cross_norm / 2
-
-        # Compute the location of points of interest on each panel
-        left_vortex_vertices = 0.75 * front_left_vertices + 0.25 * back_left_vertices
-        right_vortex_vertices = 0.75 * front_right_vertices + 0.25 * back_right_vertices
-        vortex_centers = (left_vortex_vertices + right_vortex_vertices) / 2
-        vortex_bound_leg = right_vortex_vertices - left_vortex_vertices
-        vortex_bound_leg_norm = np.linalg.norm(vortex_bound_leg, axis=1)
-        collocation_points = 0.5 * (
-            0.25 * front_left_vertices + 0.75 * back_left_vertices
-        ) + 0.5 * (0.25 * front_right_vertices + 0.75 * back_right_vertices)
-        wing_directions = vortex_bound_leg / tall(vortex_bound_leg_norm)
-        local_forward_direction = np.cross(normal_directions, wing_directions)
-        chord_vectors = (back_left_vertices + back_right_vertices) / 2 - (
-            front_left_vertices + front_right_vertices
-        ) / 2
-        chords = np.linalg.norm(chord_vectors, axis=1)
-
-        ### Save things to the instance for later access
-        self.front_left_vertices = front_left_vertices
-        self.back_left_vertices = back_left_vertices
-        self.back_right_vertices = back_right_vertices
-        self.front_right_vertices = front_right_vertices
-        self.is_trailing_edge = is_trailing_edge
-        self.normal_directions = normal_directions
-        self.areas = areas
-        self.left_vortex_vertices = left_vortex_vertices
-        self.right_vortex_vertices = right_vortex_vertices
-        self.vortex_centers = vortex_centers
-        self.vortex_bound_leg = vortex_bound_leg
-        self.collocation_points = collocation_points
-        self.airfoils: List[Airfoil] = airfoils
+        g = self._ensure_geometry()
+        normal_directions = g["normal_directions"]
+        collocation_points = g["collocation_points"]
+        vortex_bound_leg = g["vortex_bound_leg"]
+        vortex_centers = g["vortex_centers"]
 
         ##### Setup Operating Point
         if self.verbose:
@@ -273,24 +626,7 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
         if self.verbose:
             print("Calculating the collocation influence matrix...")
         u_collocations_unit, v_collocations_unit, w_collocations_unit = (
-            calculate_induced_velocity_horseshoe(
-                x_field=tall(collocation_points[:, 0]),
-                y_field=tall(collocation_points[:, 1]),
-                z_field=tall(collocation_points[:, 2]),
-                x_left=wide(left_vortex_vertices[:, 0]),
-                y_left=wide(left_vortex_vertices[:, 1]),
-                z_left=wide(left_vortex_vertices[:, 2]),
-                x_right=wide(right_vortex_vertices[:, 0]),
-                y_right=wide(right_vortex_vertices[:, 1]),
-                z_right=wide(right_vortex_vertices[:, 2]),
-                trailing_vortex_direction=(
-                    steady_freestream_direction
-                    if self.align_trailing_vortices_with_wind
-                    else np.array([1, 0, 0])
-                ),
-                gamma=1.0,
-                vortex_core_radius=self.vortex_core_radius,
-            )
+            self._horseshoe_unit_influence(collocation_points, "collocation")
         )
 
         AIC = (
@@ -315,7 +651,23 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
             print("Calculating induced forces on each panel...")
         # Calculate the induced velocity at the center of each bound leg
 
-        velocities = self.get_velocity_at_points(points=self.vortex_centers)
+        u_vc, v_vc, w_vc = self._horseshoe_unit_influence(
+            self.vortex_centers, "vortex_centers"
+        )
+        V_induced = np.stack(
+            [
+                u_vc @ self.vortex_strengths,
+                v_vc @ self.vortex_strengths,
+                w_vc @ self.vortex_strengths,
+            ],
+            axis=1,
+        )
+        rotation_freestream_velocities = (
+            self.op_point.compute_rotation_velocity_geometry_axes(self.vortex_centers)
+        )
+        velocities = V_induced + np.add(
+            wide(self.steady_freestream_velocity), rotation_freestream_velocities
+        )
 
         velocity_magnitudes = np.linalg.norm(velocities, axis=1)
 
@@ -335,61 +687,18 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
         )
 
         ## VISCOUS built-up
-        nx = self.chordwise_resolution
-        ny = forces_inviscid_geometry.shape[0] // nx
-        ny_2 = ny // 2
-
-        # trapezoidal geometry with only 1 panel chordwise
-        front_left_vertices = []
-        back_left_vertices = []
-        back_right_vertices = []
-        front_right_vertices = []
-
-        for wing in self.airplane.wings:  # subdivide the wing in more spanwise sections
-            if self.spanwise_resolution > 1:
-                wing = wing.subdivide_sections(
-                    ratio=self.spanwise_resolution,
-                    spacing_function=self.spanwise_spacing_function,
-                )
-
-            points, faces = wing.mesh_thin_surface(
-                method="quad",
-                chordwise_resolution=1,
-                add_camber=False,
-            )
-
-            front_left_vertices.append(points[faces[:, 0], :])
-            back_left_vertices.append(points[faces[:, 1], :])
-            back_right_vertices.append(points[faces[:, 2], :])
-            front_right_vertices.append(points[faces[:, 3], :])
-
-        front_left_vertices = np.concatenate(front_left_vertices)
-        back_left_vertices = np.concatenate(back_left_vertices)
-        back_right_vertices = np.concatenate(back_right_vertices)
-        front_right_vertices = np.concatenate(front_right_vertices)
-        left_vortex_vertices = 0.75 * front_left_vertices + 0.25 * back_left_vertices
-        right_vortex_vertices = 0.75 * front_right_vertices + 0.25 * back_right_vertices
-        vortex_centers = (left_vortex_vertices + right_vortex_vertices) / 2
-
-        ### Compute panel statistics
-        diag1 = front_right_vertices - back_left_vertices
-        diag2 = front_left_vertices - back_right_vertices
-        cross = np.cross(diag1, diag2)
-        cross_norm = np.linalg.norm(cross, axis=1)
-        normal_directions = cross / tall(cross_norm)
-        areas = cross_norm / 2
-
-        span_centers = vortex_centers[:ny_2, 1]
-        span_centers_normalized = span_centers / vortex_centers[ny_2 - 1, 1]
-        span_edges = np.append(
-            left_vortex_vertices[:ny_2, 1], right_vortex_vertices[ny_2 - 1, 1]
-        )
-
-        # Compute the location of points of interest on each panel
-        chord_vectors = (back_left_vertices + back_right_vertices) / 2 - (
-            front_left_vertices + front_right_vertices
-        ) / 2
-        chords = np.linalg.norm(chord_vectors, axis=1)
+        nx = g["nx"]
+        ny = g["ny"]
+        ny_2 = g["ny_2"]
+        left_vortex_vertices = g["vp_left_vortex_vertices"]
+        right_vortex_vertices = g["vp_right_vortex_vertices"]
+        vortex_centers = g["vp_vortex_centers"]
+        normal_directions = g["vp_normal_directions"]
+        areas = g["vp_areas"]
+        chords = g["vp_chords"]
+        span_centers = g["span_centers"]
+        span_centers_normalized = g["span_centers_normalized"]
+        span_edges = g["span_edges"]
 
         # local moment calculation
         cMx = np.sum(
@@ -440,71 +749,19 @@ class ViscousVortexLatticeMethod(ExplicitAnalysis):
         self.local_cl = local_cl
         self.ideal_aoa = local_cl / (2 * np.pi)
 
-        # Built interpolant
-
-        def index_xtrem(a: np.ndarray) -> np.ndarray:
-            """
-            Returns the sub-array from the start up through the first maximum.
-            """
-            min_idx = np.argmin(a)
-            max_idx = np.argmax(a)
-            return min_idx, max_idx
-
         Res = self.op_point.reynolds(chords)
-        # not under 100 samples, otherwise
-        alphas = np.linspace(-15, 25, num=100)
-        aeros = [
-            af.get_aero_from_neuralfoil(
-                alpha=alphas,
-                Re=Res[i],
-                mach=0.03,
-                xtr_lower=self.xtr_lower,
-                xtr_upper=self.xtr_upper,
-                n_crit=self.n_crit,
-                model_size="xxlarge",
-            )
-            for i, af in enumerate(self.airfoils)
-        ]
+        n_sections = len(self.airfoils)
+        Cdps = self._evaluate_section_cdp(Res[:n_sections], self.local_cl)
 
-        index_stall = [index_xtrem(aero["CL"]) for aero in aeros]
-        Cdps = np.zeros(len(self.airfoils))
-        Dps = np.zeros(len(self.airfoils))
-        Fps = np.zeros((len(self.airfoils), 3))
-        for i in range(len(self.airfoils)):
-            CL_max = aeros[i]["CL"][index_stall[i][1]]
-            CL_min = aeros[i]["CL"][index_stall[i][0]]
-            # print(np.diff(aeros[i]["CL"]))
-            # print([k for k in range(len(aeros[i]["CL"]))])
-            CL_no_stall = aeros[i]["CL"][index_stall[i][0] : index_stall[i][1] + 1]
-            CD_no_stall = aeros[i]["CD"][index_stall[i][0] : index_stall[i][1] + 1]
-            spl_cl_cd = InterpolatedModel(CL_no_stall, CD_no_stall, method="bspline")
-            spl_aoa_cd = InterpolatedModel(alphas, aeros[i]["CD"])
-
-            if CL_min <= self.local_cl[i] and self.local_cl[i] <= CL_max:
-                Cdps[i] = spl_cl_cd(self.local_cl[i])
-            elif CL_min > self.local_cl[i]:
-                Cdps[i] = spl_cl_cd(CL_min)
-            else:
-                alpha_stalled = (self.local_cl[i] - CL_max) / (
-                    2 * np.pi
-                ) * 180 / np.pi + alphas[index_stall[i][1]]
-                Cdps[i] = spl_aoa_cd(alpha_stalled)
-                if self.verbose:
-                    print(f"WARNING: local stall detected airfoil section {i}")
-                    print("local CL", i, self.local_cl[i])
-                    print("max CL", CL_max)
-                    print("alpha stall", alphas[index_stall[i][1]])
-                    print("alpha local", alpha_stalled)
-
-            Dps[i] = (
-                2  # to account for both sides
-                * Cdps[i]
-                * 0.5
-                * self.op_point.atmosphere.density()
-                * self.op_point.velocity**2
-                * areas[i]
-            )
-            Fps[i, :] = Dps[i] * self.steady_freestream_direction
+        Dps = (
+            2  # to account for both sides
+            * Cdps
+            * 0.5
+            * self.op_point.atmosphere.density()
+            * self.op_point.velocity**2
+            * areas[:n_sections]
+        )
+        Fps = tall(Dps) * wide(self.steady_freestream_direction)
 
         Dp = np.sum(Dps)
         moments_profile_geometry = np.cross(
